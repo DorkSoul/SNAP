@@ -1,0 +1,11 @@
+services:
+  mediaplay:
+    image: ghcr.io/dorksoul/mediaplay:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - **REDACTED**:/media:ro
+    environment:
+      - MEDIA_ROOT=/media
+      - PORT=3000
+    restart: unless-stopped

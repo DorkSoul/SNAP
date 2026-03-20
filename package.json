@@ -1,0 +1,14 @@
+{
+  "name": "mplay",
+  "version": "1.0.0",
+  "description": "Browser-based file system music player",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "music-metadata": "^10.2.1",
+    "mime-types": "^2.1.35"
+  }
+}

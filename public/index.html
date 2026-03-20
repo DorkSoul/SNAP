@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mplay</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="logo">mplay</span>
+    <div class="topbar-controls">
+      <input type="text" id="search" placeholder="Search…" autocomplete="off" />
+      <button id="btn-list" class="view-btn active" title="List view">&#9776;</button>
+      <button id="btn-grid" class="view-btn" title="Grid view">&#9783;</button>
+    </div>
+  </header>
+
+  <nav class="breadcrumb" id="breadcrumb" aria-label="Path navigation"></nav>
+
+  <main class="browser" id="browser" role="main"></main>
+
+  <footer class="player-bar" id="player-bar">
+    <div class="player-art">
+      <img id="player-art-img" src="" alt="" />
+    </div>
+    <div class="player-info">
+      <span id="player-title" class="player-title">—</span>
+      <span id="player-artist" class="player-artist"></span>
+    </div>
+    <div class="player-controls">
+      <button id="btn-prev" title="Previous">&#9664;&#9664;</button>
+      <button id="btn-play" title="Play/Pause" class="play-btn">&#9654;</button>
+      <button id="btn-next" title="Next">&#9654;&#9654;</button>
+    </div>
+    <div class="player-seek">
+      <span id="time-current">0:00</span>
+      <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1" />
+      <span id="time-total">0:00</span>
+    </div>
+    <div class="player-volume">
+      <span>&#128266;</span>
+      <input type="range" id="volume-bar" min="0" max="1" value="1" step="0.02" />
+    </div>
+  </footer>
+
+  <audio id="audio" preload="metadata"></audio>
+  <script src="app.js"></script>
+</body>
+</html>
