@@ -285,9 +285,12 @@ html, body {
 }
 .play-btn { font-size: 20px !important; }
 
-.extra-btn { color: var(--text-muted) !important; font-size: 20px !important; }
-.extra-btn:hover { color: var(--accent) !important; }
+.extra-btn { color: var(--text-muted) !important; font-size: 20px !important; -webkit-tap-highlight-color: transparent; }
+.extra-btn:focus { outline: none; color: var(--text-muted) !important; }
 .extra-btn.active { color: var(--accent) !important; }
+@media (hover: hover) {
+  .extra-btn:hover { color: var(--accent) !important; }
+}
 
 /* Seek */
 .player-seek {

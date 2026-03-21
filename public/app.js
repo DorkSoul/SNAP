@@ -540,11 +540,13 @@ const FileBrowser = (() => {
 
   // ── Long press detection ──
   function addLongPress(el, onLong, onClick) {
-    let timer = null;
+    let timer  = null;
     let didLong = false;
+    let moved   = false;
 
     const start = () => {
       didLong = false;
+      moved   = false;
       timer = setTimeout(() => {
         didLong = true;
         onLong();
@@ -556,11 +558,11 @@ const FileBrowser = (() => {
     };
 
     el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('touchmove', () => { moved = true; cancel(); }, { passive: true });
     el.addEventListener('touchend', e => {
       cancel();
-      if (!didLong) onClick(e);
+      if (!didLong && !moved) onClick(e);
     });
-    el.addEventListener('touchmove', cancel, { passive: true });
 
     // Mouse fallback for desktop
     el.addEventListener('mousedown', start);
