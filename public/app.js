@@ -344,32 +344,40 @@ const QueueModal = (() => {
   const btnAddEnd  = document.getElementById('qm-add-end');
   const btnCancel  = document.getElementById('qm-cancel');
 
-  let pendingPath    = null;
-  let pendingDirPaths = null;
-  let pendingIdx     = null;
+  // paths: array of paths to queue. startIdx: which to start at.
+  // For single file: paths=[file], startIdx=0.
+  // For play-all: paths=allFiles, startIdx=0.
+  let pendingPaths = [];
+  let pendingIdx   = 0;
+  // The "add next/add end" target is always pendingPaths[pendingIdx]
+  function pendingPath() { return pendingPaths[pendingIdx]; }
 
-  function show(path, dirPaths, startIdx) {
-    pendingPath     = path;
-    pendingDirPaths = dirPaths;
-    pendingIdx      = startIdx;
-    trackName.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
+  function show(title, paths, startIdx) {
+    pendingPaths = paths;
+    pendingIdx   = startIdx;
+    trackName.textContent = title;
     overlay.hidden = false;
   }
 
   function hide() { overlay.hidden = true; }
 
   btnPlayNow.addEventListener('click', () => {
-    Player.startQueue(pendingDirPaths, pendingIdx);
+    Player.startQueue(pendingPaths, pendingIdx);
     hide();
   });
 
   btnNext.addEventListener('click', () => {
-    Player.addAfterCurrent(pendingPath);
+    // For multi-file (play all) add all after current; for single just add one
+    if (pendingPaths.length > 1) {
+      pendingPaths.forEach(p => Player.addToEnd(p));
+    } else {
+      Player.addAfterCurrent(pendingPath());
+    }
     hide();
   });
 
   btnAddEnd.addEventListener('click', () => {
-    Player.addToEnd(pendingPath);
+    pendingPaths.forEach(p => Player.addToEnd(p));
     hide();
   });
 
@@ -478,16 +486,95 @@ const ViewToggle = (() => {
 // ── File Browser ──────────────────────────────────────────────────────────────
 
 const FileBrowser = (() => {
-  const browserEl   = document.getElementById('browser');
+  const browserEl    = document.getElementById('browser');
   const breadcrumbEl = document.getElementById('breadcrumb');
-  const searchEl    = document.getElementById('search');
+  const searchEl     = document.getElementById('search');
+  const selectBar    = document.getElementById('select-bar');
+  const selectCount  = document.getElementById('select-count');
+  const selectPlayNow  = document.getElementById('select-play-now');
+  const selectAddQueue = document.getElementById('select-add-queue');
+  const selectCancel   = document.getElementById('select-cancel');
 
   let currentPath  = '';
   let currentItems = [];
   let playingPath  = '';
   let searchQuery  = '';
 
+  // Multi-select state
+  let selectMode    = false;
+  let selectedPaths = new Set();
+
+  // ── Multi-select bar ──
+  function enterSelectMode(path) {
+    selectMode = true;
+    selectedPaths = new Set([path]);
+    selectBar.hidden = false;
+    updateSelectCount();
+    render();
+  }
+
+  function exitSelectMode() {
+    selectMode = false;
+    selectedPaths.clear();
+    selectBar.hidden = true;
+    render();
+  }
+
+  function updateSelectCount() {
+    selectCount.textContent = `${selectedPaths.size} selected`;
+  }
+
+  selectPlayNow.addEventListener('click', () => {
+    const paths = [...selectedPaths];
+    if (paths.length === 0) return;
+    Player.startQueue(paths, 0);
+    exitSelectMode();
+  });
+
+  selectAddQueue.addEventListener('click', () => {
+    [...selectedPaths].forEach(p => Player.addToEnd(p));
+    exitSelectMode();
+  });
+
+  selectCancel.addEventListener('click', exitSelectMode);
+
+  // ── Long press detection ──
+  function addLongPress(el, onLong, onClick) {
+    let timer = null;
+    let didLong = false;
+
+    const start = () => {
+      didLong = false;
+      timer = setTimeout(() => {
+        didLong = true;
+        onLong();
+      }, 500);
+    };
+
+    const cancel = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+    };
+
+    el.addEventListener('touchstart', start, { passive: true });
+    el.addEventListener('touchend', e => {
+      cancel();
+      if (!didLong) onClick(e);
+    });
+    el.addEventListener('touchmove', cancel, { passive: true });
+
+    // Mouse fallback for desktop
+    el.addEventListener('mousedown', start);
+    el.addEventListener('mouseup', cancel);
+    el.addEventListener('mouseleave', cancel);
+    el.addEventListener('click', e => {
+      if (!didLong) onClick(e);
+      didLong = false;
+    });
+  }
+
+  // ── Navigation ──
   function navigate(p) {
+    if (selectMode) exitSelectMode();
     currentPath  = p;
     searchEl.value = '';
     searchQuery  = '';
@@ -524,96 +611,169 @@ const FileBrowser = (() => {
       browserEl.innerHTML = '<div class="browser-empty">No files found</div>';
       return;
     }
-    if (ViewToggle.get() === 'grid') renderGrid(items);
-    else renderList(items);
+
+    const frag = document.createDocumentFragment();
+
+    // Play all / folder actions header (only when there are audio files)
+    const audioFiles = items.filter(i => i.type === 'file');
+    if (audioFiles.length > 0 && !selectMode) {
+      const header = document.createElement('div');
+      header.className = 'folder-actions';
+
+      const label = document.createElement('span');
+      label.className = 'folder-actions-label';
+      label.textContent = `${audioFiles.length} song${audioFiles.length !== 1 ? 's' : ''}`;
+
+      const playAll = document.createElement('button');
+      playAll.className = 'play-all-btn';
+      playAll.textContent = '\u25B6 Play all';
+      playAll.addEventListener('click', () => {
+        const paths = audioFiles.map(f => f.path);
+        if (Player.isActive()) {
+          QueueModal.show(`${audioFiles.length} songs in folder`, paths, 0);
+        } else {
+          Player.startQueue(paths, 0);
+        }
+      });
+
+      header.append(label, playAll);
+      frag.appendChild(header);
+    }
+
+    const container = document.createElement('div');
+    if (ViewToggle.get() === 'grid') {
+      container.className = 'grid-view';
+      for (const item of items) container.appendChild(makeGridItem(item));
+    } else {
+      container.className = 'list-view';
+      for (const item of items) container.appendChild(makeListItem(item));
+    }
+    frag.appendChild(container);
+
+    browserEl.innerHTML = '';
+    browserEl.appendChild(frag);
   }
 
   function onFileClick(item) {
-    const files   = currentItems.filter(i => i.type === 'file');
-    const paths   = files.map(f => f.path);
-    const idx     = paths.indexOf(item.path);
+    if (selectMode) {
+      // Toggle selection
+      if (selectedPaths.has(item.path)) {
+        selectedPaths.delete(item.path);
+        if (selectedPaths.size === 0) { exitSelectMode(); return; }
+      } else {
+        selectedPaths.add(item.path);
+      }
+      updateSelectCount();
+      render();
+      return;
+    }
 
+    // Normal click: single file only
     if (Player.isActive()) {
-      QueueModal.show(item.path, paths, idx);
+      const displayName = item.name.replace(/\.[^.]+$/, '');
+      QueueModal.show(displayName, [item.path], 0);
     } else {
-      Player.startQueue(paths, idx);
+      Player.startQueue([item.path], 0);
     }
   }
 
-  function renderList(items) {
-    const ul = document.createElement('div');
-    ul.className = 'list-view';
+  function makeListItem(item) {
+    const el = document.createElement('div');
+    el.className = 'list-item' +
+      (item.name.startsWith('.') ? ' hidden-entry' : '') +
+      (item.path === playingPath ? ' playing' : '') +
+      (selectMode && selectedPaths.has(item.path) ? ' selected' : '');
 
-    for (const item of items) {
-      const el = document.createElement('div');
-      el.className = 'list-item' +
-        (item.name.startsWith('.') ? ' hidden-entry' : '') +
-        (item.path === playingPath ? ' playing' : '');
-
+    if (selectMode && item.type === 'file') {
+      const chk = document.createElement('span');
+      chk.className = 'select-check';
+      chk.textContent = selectedPaths.has(item.path) ? '\u2713' : '\u25CB';
+      el.appendChild(chk);
+    } else {
       const icon = document.createElement('span');
       icon.className = 'list-icon';
-      icon.textContent = item.type === 'dir' ? '📁' : '🎵';
-
-      const name = document.createElement('span');
-      name.className = 'list-name';
-      name.textContent = item.name;
-
-      const meta = document.createElement('span');
-      meta.className = 'list-meta';
-
-      if (item.type === 'file') {
-        const dur = document.createElement('span');
-        dur.textContent = '—';
-        fetchDuration(item.path).then(d => { if (d) dur.textContent = formatTime(d); });
-        const sz = document.createElement('span');
-        sz.textContent = item.size ? formatSize(item.size) : '';
-        meta.append(dur, sz);
-      }
-
-      el.append(icon, name, meta);
-      el.addEventListener('click', () => item.type === 'dir' ? navigate(item.path) : onFileClick(item));
-      ul.appendChild(el);
+      icon.textContent = item.type === 'dir' ? '\uD83D\uDCC1' : '\uD83C\uDFB5';
+      el.appendChild(icon);
     }
 
-    browserEl.innerHTML = '';
-    browserEl.appendChild(ul);
+    const name = document.createElement('span');
+    name.className = 'list-name';
+    name.textContent = item.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'list-meta';
+
+    if (item.type === 'file') {
+      const dur = document.createElement('span');
+      dur.textContent = '—';
+      fetchDuration(item.path).then(d => { if (d) dur.textContent = formatTime(d); });
+      const sz = document.createElement('span');
+      sz.textContent = item.size ? formatSize(item.size) : '';
+      meta.append(dur, sz);
+    }
+
+    el.append(name, meta);
+
+    if (item.type === 'dir') {
+      el.addEventListener('click', () => navigate(item.path));
+    } else {
+      addLongPress(
+        el,
+        () => { // long press
+          if (!selectMode) enterSelectMode(item.path);
+          else { selectedPaths.add(item.path); updateSelectCount(); render(); }
+        },
+        () => onFileClick(item) // normal click
+      );
+    }
+
+    return el;
   }
 
-  function renderGrid(items) {
-    const grid = document.createElement('div');
-    grid.className = 'grid-view';
+  function makeGridItem(item) {
+    const el = document.createElement('div');
+    el.className = 'grid-item' +
+      (item.name.startsWith('.') ? ' hidden-entry' : '') +
+      (item.path === playingPath ? ' playing' : '') +
+      (selectMode && selectedPaths.has(item.path) ? ' selected' : '');
 
-    for (const item of items) {
-      const el = document.createElement('div');
-      el.className = 'grid-item' +
-        (item.name.startsWith('.') ? ' hidden-entry' : '') +
-        (item.path === playingPath ? ' playing' : '');
+    const thumb = document.createElement('div');
+    thumb.className = 'grid-thumb';
+    thumb.textContent = item.type === 'dir' ? '\uD83D\uDCC1' : '\uD83C\uDFB5';
 
-      const thumb = document.createElement('div');
-      thumb.className = 'grid-thumb';
-      thumb.textContent = item.type === 'dir' ? '📁' : '🎵';
-
+    if (selectMode && item.type === 'file') {
+      const overlay = document.createElement('div');
+      overlay.className = 'grid-select-overlay';
+      overlay.textContent = selectedPaths.has(item.path) ? '\u2713' : '';
+      thumb.appendChild(overlay);
+    } else {
       const img = document.createElement('img');
       img.src = `/api/artwork?path=${enc(item.path)}`;
       img.setAttribute('data-loaded', 'false');
-      img.onload = () => {
-        img.setAttribute('data-loaded', 'true');
-        thumb.textContent = '';
-        thumb.appendChild(img);
-      };
+      img.onload = () => { img.setAttribute('data-loaded', 'true'); thumb.textContent = ''; thumb.appendChild(img); };
       img.onerror = () => {};
-
-      const name = document.createElement('span');
-      name.className = 'grid-name';
-      name.textContent = item.name;
-
-      el.append(thumb, name);
-      el.addEventListener('click', () => item.type === 'dir' ? navigate(item.path) : onFileClick(item));
-      grid.appendChild(el);
     }
 
-    browserEl.innerHTML = '';
-    browserEl.appendChild(grid);
+    const name = document.createElement('span');
+    name.className = 'grid-name';
+    name.textContent = item.name;
+
+    el.append(thumb, name);
+
+    if (item.type === 'dir') {
+      el.addEventListener('click', () => navigate(item.path));
+    } else {
+      addLongPress(
+        el,
+        () => {
+          if (!selectMode) enterSelectMode(item.path);
+          else { selectedPaths.add(item.path); updateSelectCount(); render(); }
+        },
+        () => onFileClick(item)
+      );
+    }
+
+    return el;
   }
 
   function renderBreadcrumb() {
