@@ -87,13 +87,16 @@ const Player = (() => {
 
   // ── UI sync ──
   function syncPlayIcon(playing) {
-    const icon = playing ? '\u23F8\uFE0E' : '\u25B6';
-    btnPlay.textContent  = icon;
+    const icon = playing ? '\u2759\u2759' : '\u25B6'; // ❙❙ or ▶ — no emoji rendering
+    btnPlay.textContent   = icon;
     fsBtnPlay.textContent = icon;
   }
 
   function syncShuffleIcon() {
-    [btnShuffle, fsBtnShuffle].forEach(b => b.classList.toggle('active', shuffleMode));
+    [btnShuffle, fsBtnShuffle].forEach(b => {
+      b.classList.toggle('active', shuffleMode);
+      b.blur();
+    });
   }
 
   function syncRepeatIcon() {
@@ -102,6 +105,7 @@ const Player = (() => {
     [btnRepeat, fsBtnRepeat].forEach(b => {
       b.classList.toggle('active', active);
       b.textContent = icon;
+      b.blur();
     });
   }
 
@@ -404,11 +408,19 @@ const QueuePanel = (() => {
       num.className = 'queue-item-num';
       if (i !== idx) num.textContent = i + 1;
 
+      const thumb = document.createElement('div');
+      thumb.className = 'queue-item-thumb';
+      thumb.textContent = '\uD83C\uDFB5';
+      const tImg = document.createElement('img');
+      tImg.src = `/api/artwork?path=${enc(path)}`;
+      tImg.onload = () => { thumb.textContent = ''; thumb.appendChild(tImg); };
+      tImg.onerror = () => {};
+
       const name = document.createElement('span');
       name.className = 'queue-item-name';
       name.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
 
-      item.append(num, name);
+      item.append(num, thumb, name);
       item.addEventListener('click', () => { Player.jumpTo(i); close(); });
       listEl.appendChild(item);
     });
