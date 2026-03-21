@@ -111,7 +111,7 @@ html, body {
 }
 .crumb:hover { color: var(--accent); }
 .crumb.active { color: var(--text); cursor: default; }
-.crumb-sep { color: var(--border); user-select: none; }
+.crumb-sep { color: var(--text-muted); user-select: none; font-weight: 600; }
 
 /* ── File browser ── */
 .browser {
