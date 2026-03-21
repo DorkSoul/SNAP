@@ -119,6 +119,20 @@ const Player = (() => {
   let isSeeking     = false;
   let currentPath   = null;
 
+  // ── Persistence ──
+  const STORAGE_KEY = 'mplay_state';
+  let lastSaveAt = 0;
+
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        queue, originalQueue, queueIndex,
+        shuffleMode, repeatMode, currentPath,
+        position: isFinite(audio.currentTime) ? audio.currentTime : 0,
+      }));
+    } catch (_) {}
+  }
+
   // ── Queries ──
   function paused()         { return audio.paused; }
   function isActive()       { return queue.length > 0; }
@@ -175,6 +189,7 @@ const Player = (() => {
   // ── Load & play ──
   async function loadTrack(path, play = true) {
     currentPath = path;
+    saveState();
     audio.src = `/api/stream?path=${enc(path)}`;
     audio.load();
 
@@ -267,12 +282,14 @@ const Player = (() => {
     queue.push(path);
     if (originalQueue) originalQueue.push(path);
     QueuePanel.refresh();
+    saveState();
   }
 
   function addAfterCurrent(path) {
     queue.splice(queueIndex + 1, 0, path);
     if (originalQueue) originalQueue.splice(originalQueue.length, 0, path);
     QueuePanel.refresh();
+    saveState();
   }
 
   function jumpTo(index) {
@@ -305,6 +322,7 @@ const Player = (() => {
     }
     syncShuffleIcon();
     QueuePanel.refresh();
+    saveState();
   }
 
   // ── Repeat ──
@@ -313,6 +331,7 @@ const Player = (() => {
     else if (repeatMode === 'queue') repeatMode = 'one';
     else                        repeatMode = 'off';
     syncRepeatIcon();
+    saveState();
   }
 
   // ── Event wiring ──
@@ -327,7 +346,11 @@ const Player = (() => {
   btnRepeat.addEventListener('click', cycleRepeat);
   fsBtnRepeat.addEventListener('click', cycleRepeat);
 
-  audio.addEventListener('timeupdate', syncSeek);
+  audio.addEventListener('timeupdate', () => {
+    syncSeek();
+    const now = Date.now();
+    if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
+  });
   audio.addEventListener('ended', () => {
     syncPlayIcon(false);
     playNext();
@@ -376,10 +399,66 @@ const Player = (() => {
     QueuePanel.open();
   });
 
+  // ── Restore persisted state on page load ──
+  function restore() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (!s.currentPath || !Array.isArray(s.queue) || s.queue.length === 0) return;
+
+      queue         = s.queue;
+      originalQueue = s.originalQueue || null;
+      queueIndex    = s.queueIndex    ?? -1;
+      shuffleMode   = s.shuffleMode   || false;
+      repeatMode    = s.repeatMode    || 'off';
+      currentPath   = s.currentPath;
+
+      syncShuffleIcon();
+      syncRepeatIcon();
+
+      const savedPos = s.position || 0;
+      audio.src = `/api/stream?path=${enc(currentPath)}`;
+      audio.load();
+
+      if (savedPos > 0) {
+        audio.addEventListener('loadedmetadata', () => {
+          audio.currentTime = savedPos;
+          syncSeek();
+        }, { once: true });
+      }
+
+      syncArt(currentPath);
+
+      const name = currentPath.split('/').pop().replace(/\.[^.]+$/, '');
+      fsTitle.textContent  = name;
+      fsArtist.textContent = '';
+
+      fetch(`/api/metadata?path=${enc(currentPath)}`)
+        .then(r => r.json())
+        .then(meta => {
+          fsTitle.textContent  = meta.title || name;
+          fsArtist.textContent = meta.artist || '';
+          if (meta.duration) {
+            const tot = formatTime(meta.duration);
+            timeTotal.textContent   = tot;
+            fsTimeTotal.textContent = tot;
+          }
+          MediaSessionManager.update({ title: meta.title || name, artist: meta.artist || '', artworkPath: currentPath });
+        })
+        .catch(() => {
+          MediaSessionManager.update({ title: name, artist: '', artworkPath: currentPath });
+        });
+
+      FileBrowser.setPlaying(currentPath);
+      QueuePanel.refresh();
+    } catch (_) {}
+  }
+
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
-    playPause, playNext, playPrev
+    playPause, playNext, playPrev, restore
   };
 })();
 
@@ -882,3 +961,6 @@ const FileBrowser = (() => {
 
   return { navigate, setPlaying, refresh };
 })();
+
+// Restore queue + position after all modules are initialised
+Player.restore();
