@@ -685,18 +685,26 @@ const FileBrowser = (() => {
       if (timer) { clearTimeout(timer); timer = null; }
     };
 
-    el.addEventListener('touchstart', start, { passive: true });
+    let wasTouch = false;
+
+    el.addEventListener('touchstart', () => { wasTouch = true; start(); }, { passive: true });
     el.addEventListener('touchmove', () => { moved = true; cancel(); }, { passive: true });
     el.addEventListener('touchend', e => {
       cancel();
-      if (!didLong && !moved) onClick(e);
+      if (!didLong && !moved) {
+        e.preventDefault(); // suppress synthetic mousedown/click that would double-fire
+        onClick(e);
+      }
+      // reset wasTouch after a frame so the click guard below doesn't persist
+      setTimeout(() => { wasTouch = false; }, 600);
     });
 
-    // Mouse fallback for desktop
-    el.addEventListener('mousedown', start);
-    el.addEventListener('mouseup', cancel);
-    el.addEventListener('mouseleave', cancel);
+    // Mouse fallback for desktop (skip if touch already handled it)
+    el.addEventListener('mousedown', () => { if (!wasTouch) start(); });
+    el.addEventListener('mouseup',   () => { if (!wasTouch) cancel(); });
+    el.addEventListener('mouseleave',() => { if (!wasTouch) cancel(); });
     el.addEventListener('click', e => {
+      if (wasTouch) return; // already handled by touchend
       if (!didLong) onClick(e);
       didLong = false;
     });
