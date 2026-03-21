@@ -37,11 +37,19 @@ html, body {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 18px;
   font-weight: 700;
   color: var(--accent);
   letter-spacing: -0.5px;
   flex-shrink: 0;
+}
+.logo-img {
+  width: 32px;
+  height: 32px;
+  display: block;
 }
 
 .topbar-controls {
