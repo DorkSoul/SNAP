@@ -335,16 +335,34 @@ input[type=range]::-moz-range-thumb {
 
 /* ── Mobile adjustments ── */
 @media (max-width: 600px) {
-  :root { --player-h: 110px; }
+  :root { --player-h: 120px; }
 
   .player-bar {
     flex-wrap: wrap;
     padding: 8px 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
     gap: 6px;
     align-content: center;
+    justify-content: center;
+    height: calc(var(--player-h) + env(safe-area-inset-bottom));
   }
 
-  .player-info { width: calc(100% - 60px - 120px - 12px); }
+  .browser {
+    bottom: calc(var(--player-h) + env(safe-area-inset-bottom));
+  }
+
+  .player-art { flex-shrink: 0; }
+
+  .player-info {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .player-controls {
+    width: 100%;
+    justify-content: center;
+  }
 
   .player-seek {
     order: 10;
