@@ -292,6 +292,14 @@ html, body {
   .extra-btn:hover { color: var(--accent) !important; }
 }
 
+/* Shuffle / repeat inline group (desktop) */
+.player-mid-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 /* Seek */
 .player-seek {
   display: flex;
@@ -720,13 +728,13 @@ input[type=range]::-moz-range-thumb {
 
 /* ── Mobile adjustments ── */
 @media (max-width: 600px) {
-  :root { --player-h: 120px; }
+  :root { --player-h: 148px; }
 
   .player-bar {
     flex-wrap: wrap;
-    padding: 8px 10px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
-    gap: 6px;
+    padding: 6px 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    gap: 4px;
     align-content: center;
     justify-content: center;
     height: calc(var(--player-h) + env(safe-area-inset-bottom));
@@ -738,16 +746,25 @@ input[type=range]::-moz-range-thumb {
 
   .player-art-btn { flex-shrink: 0; }
 
+  /* Row 1: art + main controls (prev/play/next/queue) */
   .player-controls {
     flex: 1;
     justify-content: center;
   }
 
+  /* Row 2: shuffle + repeat centred */
+  .player-mid-row {
+    order: 5;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Row 3: seek bar */
   .player-seek {
     order: 10;
     width: 100%;
     flex-basis: 100%;
-    padding-bottom: 4px;
+    padding-bottom: 2px;
   }
 
   .player-volume { display: none; }
