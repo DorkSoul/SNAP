@@ -25,24 +25,16 @@ const WakeLock = (() => {
 
   async function acquire() {
     if (!('wakeLock' in navigator)) return;
-    try {
-      lock = await navigator.wakeLock.request('screen');
-    } catch (e) {
-      console.warn('Wake lock failed:', e);
-    }
+    try { lock = await navigator.wakeLock.request('screen'); }
+    catch (e) { console.warn('Wake lock failed:', e); }
   }
 
   async function release() {
-    if (lock) {
-      await lock.release().catch(() => {});
-      lock = null;
-    }
+    if (lock) { await lock.release().catch(() => {}); lock = null; }
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !Player.paused()) {
-      acquire();
-    }
+    if (document.visibilityState === 'visible' && !Player.paused()) acquire();
   });
 
   return { acquire, release };
@@ -52,158 +44,396 @@ const WakeLock = (() => {
 
 const Player = (() => {
   const audio = document.getElementById('audio');
-  const btnPlay = document.getElementById('btn-play');
-  const btnPrev = document.getElementById('btn-prev');
-  const btnNext = document.getElementById('btn-next');
-  const seekBar = document.getElementById('seek-bar');
-  const volumeBar = document.getElementById('volume-bar');
-  const timeCurrent = document.getElementById('time-current');
-  const timeTotal = document.getElementById('time-total');
-  const artImg = document.getElementById('player-art-img');
-  const titleEl = document.getElementById('player-title');
-  const artistEl = document.getElementById('player-artist');
 
-  let queue = [];
-  let queueIndex = -1;
-  let isSeeking = false;
+  // Player bar
+  const artImg        = document.getElementById('player-art-img');
+  const btnPlay       = document.getElementById('btn-play');
+  const btnPrev       = document.getElementById('btn-prev');
+  const btnNext       = document.getElementById('btn-next');
+  const btnShuffle    = document.getElementById('btn-shuffle');
+  const btnRepeat     = document.getElementById('btn-repeat');
+  const seekBar       = document.getElementById('seek-bar');
+  const timeCurrent   = document.getElementById('time-current');
+  const timeTotal     = document.getElementById('time-total');
+  const volumeBar     = document.getElementById('volume-bar');
 
-  function paused() { return audio.paused; }
+  // Fullscreen
+  const fsArtImg      = document.getElementById('fs-art-img');
+  const fsTitle       = document.getElementById('fs-title');
+  const fsArtist      = document.getElementById('fs-artist');
+  const fsBtnPlay     = document.getElementById('fs-btn-play');
+  const fsBtnPrev     = document.getElementById('fs-btn-prev');
+  const fsBtnNext     = document.getElementById('fs-btn-next');
+  const fsBtnShuffle  = document.getElementById('fs-btn-shuffle');
+  const fsBtnRepeat   = document.getElementById('fs-btn-repeat');
+  const fsSeekBar     = document.getElementById('fs-seek-bar');
+  const fsTimeCurrent = document.getElementById('fs-time-current');
+  const fsTimeTotal   = document.getElementById('fs-time-total');
 
-  async function loadTrack(filePath, play = true) {
-    audio.src = `/api/stream?path=${enc(filePath)}`;
+  let queue         = [];
+  let originalQueue = null;   // saved copy when shuffle is on
+  let queueIndex    = -1;
+  let shuffleMode   = false;
+  let repeatMode    = 'off'; // 'off' | 'queue' | 'one'
+  let isSeeking     = false;
+  let currentPath   = null;
+
+  // ── Queries ──
+  function paused()         { return audio.paused; }
+  function isActive()       { return queue.length > 0; }
+  function getQueue()       { return [...queue]; }
+  function getQueueIndex()  { return queueIndex; }
+  function getCurrentPath() { return currentPath; }
+
+  // ── UI sync ──
+  function syncPlayIcon(playing) {
+    const icon = playing ? '\u23F8\uFE0E' : '\u25B6';
+    btnPlay.textContent  = icon;
+    fsBtnPlay.textContent = icon;
+  }
+
+  function syncShuffleIcon() {
+    [btnShuffle, fsBtnShuffle].forEach(b => b.classList.toggle('active', shuffleMode));
+  }
+
+  function syncRepeatIcon() {
+    const active = repeatMode !== 'off';
+    const icon   = repeatMode === 'one' ? '1\u21BB' : '\u21BB';
+    [btnRepeat, fsBtnRepeat].forEach(b => {
+      b.classList.toggle('active', active);
+      b.textContent = icon;
+    });
+  }
+
+  function syncSeek() {
+    if (isSeeking) return;
+    const pct = isFinite(audio.duration) ? (audio.currentTime / audio.duration) * 100 : 0;
+    [seekBar, fsSeekBar].forEach(s => { s.value = pct; });
+    const cur = formatTime(audio.currentTime);
+    timeCurrent.textContent   = cur;
+    fsTimeCurrent.textContent = cur;
+    if (isFinite(audio.duration)) {
+      const tot = formatTime(audio.duration);
+      timeTotal.textContent   = tot;
+      fsTimeTotal.textContent = tot;
+    }
+  }
+
+  function syncArt(path) {
+    const url = `/api/artwork?path=${enc(path)}`;
+    [artImg, fsArtImg].forEach(img => {
+      img.src = url;
+      img.onerror = () => { img.src = ''; };
+    });
+  }
+
+  // ── Load & play ──
+  async function loadTrack(path, play = true) {
+    currentPath = path;
+    audio.src = `/api/stream?path=${enc(path)}`;
     audio.load();
 
-    // Reset UI
-    artImg.src = '';
-    titleEl.textContent = filePath.split('/').pop().replace(/\.[^.]+$/, '');
-    artistEl.textContent = '';
-    seekBar.value = 0;
-    timeCurrent.textContent = '0:00';
-    timeTotal.textContent = '0:00';
+    [seekBar, fsSeekBar].forEach(s => { s.value = 0; });
+    [timeCurrent, fsTimeCurrent, timeTotal, fsTimeTotal].forEach(t => { t.textContent = '0:00'; });
 
-    // Fetch metadata
-    fetch(`/api/metadata?path=${enc(filePath)}`)
+    const name = path.split('/').pop().replace(/\.[^.]+$/, '');
+    fsTitle.textContent  = name;
+    fsArtist.textContent = '';
+
+    fetch(`/api/metadata?path=${enc(path)}`)
       .then(r => r.json())
       .then(meta => {
-        titleEl.textContent = meta.title || titleEl.textContent;
-        artistEl.textContent = meta.artist || '';
-        if (meta.duration) timeTotal.textContent = formatTime(meta.duration);
+        fsTitle.textContent  = meta.title || name;
+        fsArtist.textContent = meta.artist || '';
+        if (meta.duration) {
+          const tot = formatTime(meta.duration);
+          timeTotal.textContent   = tot;
+          fsTimeTotal.textContent = tot;
+        }
       })
       .catch(() => {});
 
-    // Artwork
-    artImg.src = `/api/artwork?path=${enc(filePath)}`;
-    artImg.onerror = () => { artImg.src = ''; };
-
-    // Update playing highlight in browser
-    FileBrowser.setPlaying(filePath);
+    syncArt(path);
+    FileBrowser.setPlaying(path);
+    QueuePanel.refresh();
 
     if (play) {
       try {
         await audio.play();
-        btnPlay.textContent = '⏸';
+        syncPlayIcon(true);
         WakeLock.acquire();
-      } catch (e) {
-        console.warn('Playback failed:', e);
-      }
+      } catch (e) { console.warn('Playback failed:', e); }
     }
   }
 
+  // ── Controls ──
   function playPause() {
     if (audio.paused) {
-      audio.play().then(() => {
-        btnPlay.textContent = '⏸';
-        WakeLock.acquire();
-      }).catch(() => {});
+      audio.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
     } else {
       audio.pause();
-      btnPlay.textContent = '▶';
+      syncPlayIcon(false);
       WakeLock.release();
     }
   }
 
   function playNext() {
+    if (repeatMode === 'one') { audio.currentTime = 0; audio.play(); return; }
     if (queueIndex < queue.length - 1) {
       queueIndex++;
-      loadTrack(queue[queueIndex]);
+    } else if (repeatMode === 'queue') {
+      queueIndex = 0;
+    } else {
+      return;
     }
-  }
-
-  function playPrev() {
-    if (audio.currentTime > 3) {
-      audio.currentTime = 0;
-    } else if (queueIndex > 0) {
-      queueIndex--;
-      loadTrack(queue[queueIndex]);
-    }
-  }
-
-  function enqueueAndPlay(paths, startIndex = 0) {
-    queue = paths;
-    queueIndex = startIndex;
     loadTrack(queue[queueIndex]);
   }
 
-  function enqueueOne(filePath) {
-    // Find in queue or set as whole queue
-    const idx = queue.indexOf(filePath);
-    if (idx !== -1) {
-      queueIndex = idx;
-      loadTrack(filePath);
+  function playPrev() {
+    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    if (queueIndex > 0) {
+      queueIndex--;
+      loadTrack(queue[queueIndex]);
+    } else if (repeatMode === 'queue') {
+      queueIndex = queue.length - 1;
+      loadTrack(queue[queueIndex]);
     } else {
-      queue = [filePath];
-      queueIndex = 0;
-      loadTrack(filePath);
+      audio.currentTime = 0;
     }
   }
 
-  // Events
+  // ── Queue management ──
+  function startQueue(paths, startIndex) {
+    queue = [...paths];
+    originalQueue = null;
+    if (shuffleMode) {
+      originalQueue = [...queue];
+      doShuffle(startIndex);
+    } else {
+      queueIndex = startIndex;
+    }
+    loadTrack(queue[queueIndex]);
+  }
+
+  function addToEnd(path) {
+    queue.push(path);
+    if (originalQueue) originalQueue.push(path);
+    QueuePanel.refresh();
+  }
+
+  function addAfterCurrent(path) {
+    queue.splice(queueIndex + 1, 0, path);
+    if (originalQueue) originalQueue.splice(originalQueue.length, 0, path);
+    QueuePanel.refresh();
+  }
+
+  function jumpTo(index) {
+    queueIndex = index;
+    loadTrack(queue[queueIndex]);
+  }
+
+  // ── Shuffle ──
+  function doShuffle(currentIdx) {
+    const current = queue[currentIdx];
+    const rest = queue.filter((_, i) => i !== currentIdx);
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    queue = [current, ...rest];
+    queueIndex = 0;
+  }
+
+  function toggleShuffle() {
+    shuffleMode = !shuffleMode;
+    if (shuffleMode) {
+      originalQueue = [...queue];
+      if (queueIndex >= 0) doShuffle(queueIndex);
+    } else if (originalQueue) {
+      const cur = queue[queueIndex];
+      queue = originalQueue;
+      originalQueue = null;
+      queueIndex = Math.max(0, queue.indexOf(cur));
+    }
+    syncShuffleIcon();
+    QueuePanel.refresh();
+  }
+
+  // ── Repeat ──
+  function cycleRepeat() {
+    if (repeatMode === 'off')   repeatMode = 'queue';
+    else if (repeatMode === 'queue') repeatMode = 'one';
+    else                        repeatMode = 'off';
+    syncRepeatIcon();
+  }
+
+  // ── Event wiring ──
   btnPlay.addEventListener('click', playPause);
+  fsBtnPlay.addEventListener('click', playPause);
   btnPrev.addEventListener('click', playPrev);
+  fsBtnPrev.addEventListener('click', playPrev);
   btnNext.addEventListener('click', playNext);
+  fsBtnNext.addEventListener('click', playNext);
+  btnShuffle.addEventListener('click', toggleShuffle);
+  fsBtnShuffle.addEventListener('click', toggleShuffle);
+  btnRepeat.addEventListener('click', cycleRepeat);
+  fsBtnRepeat.addEventListener('click', cycleRepeat);
 
-  audio.addEventListener('timeupdate', () => {
-    if (isSeeking || !isFinite(audio.duration)) return;
-    seekBar.value = (audio.currentTime / audio.duration) * 100 || 0;
-    timeCurrent.textContent = formatTime(audio.currentTime);
-    if (isFinite(audio.duration)) timeTotal.textContent = formatTime(audio.duration);
-  });
-
+  audio.addEventListener('timeupdate', syncSeek);
   audio.addEventListener('ended', () => {
-    btnPlay.textContent = '▶';
+    syncPlayIcon(false);
     playNext();
-    if (queueIndex === queue.length - 1 && audio.paused) {
-      WakeLock.release();
+    if (audio.paused) WakeLock.release();
+  });
+  audio.addEventListener('pause', () => syncPlayIcon(false));
+  audio.addEventListener('play',  () => syncPlayIcon(true));
+
+  function setupSeekBar(bar, localTimeEl) {
+    bar.addEventListener('mousedown', () => { isSeeking = true; });
+    bar.addEventListener('touchstart', () => { isSeeking = true; }, { passive: true });
+    bar.addEventListener('input', () => {
+      if (!isFinite(audio.duration)) return;
+      const t = (bar.value / 100) * audio.duration;
+      const str = formatTime(t);
+      timeCurrent.textContent   = str;
+      fsTimeCurrent.textContent = str;
+      [seekBar, fsSeekBar].forEach(s => { s.value = bar.value; });
+    });
+    bar.addEventListener('change', () => {
+      if (isFinite(audio.duration)) audio.currentTime = (bar.value / 100) * audio.duration;
+      isSeeking = false;
+    });
+  }
+  setupSeekBar(seekBar, timeCurrent);
+  setupSeekBar(fsSeekBar, fsTimeCurrent);
+
+  volumeBar.addEventListener('input', () => { audio.volume = volumeBar.value; });
+
+  // Art thumbnail → fullscreen
+  document.getElementById('player-art-btn').addEventListener('click', () => {
+    if (currentPath) FullscreenPlayer.open();
+  });
+
+  // Queue view button
+  document.getElementById('btn-queue-view').addEventListener('click', () => QueuePanel.open());
+
+  // Fullscreen → queue
+  document.getElementById('fs-btn-queue').addEventListener('click', () => {
+    FullscreenPlayer.close();
+    QueuePanel.open();
+  });
+
+  return {
+    paused, isActive, getCurrentPath, getQueue, getQueueIndex,
+    startQueue, addToEnd, addAfterCurrent, jumpTo,
+    playPause, playNext, playPrev
+  };
+})();
+
+// ── Queue Action Modal ────────────────────────────────────────────────────────
+
+const QueueModal = (() => {
+  const overlay    = document.getElementById('queue-modal');
+  const trackName  = document.getElementById('modal-track-name');
+  const btnPlayNow = document.getElementById('qm-play-now');
+  const btnNext    = document.getElementById('qm-play-next');
+  const btnAddEnd  = document.getElementById('qm-add-end');
+  const btnCancel  = document.getElementById('qm-cancel');
+
+  let pendingPath    = null;
+  let pendingDirPaths = null;
+  let pendingIdx     = null;
+
+  function show(path, dirPaths, startIdx) {
+    pendingPath     = path;
+    pendingDirPaths = dirPaths;
+    pendingIdx      = startIdx;
+    trackName.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
+    overlay.hidden = false;
+  }
+
+  function hide() { overlay.hidden = true; }
+
+  btnPlayNow.addEventListener('click', () => {
+    Player.startQueue(pendingDirPaths, pendingIdx);
+    hide();
+  });
+
+  btnNext.addEventListener('click', () => {
+    Player.addAfterCurrent(pendingPath);
+    hide();
+  });
+
+  btnAddEnd.addEventListener('click', () => {
+    Player.addToEnd(pendingPath);
+    hide();
+  });
+
+  btnCancel.addEventListener('click', hide);
+  overlay.addEventListener('click', e => { if (e.target === overlay) hide(); });
+
+  return { show };
+})();
+
+// ── Queue Panel ───────────────────────────────────────────────────────────────
+
+const QueuePanel = (() => {
+  const panel     = document.getElementById('queue-panel');
+  const listEl    = document.getElementById('queue-list');
+  const closeBtn  = document.getElementById('queue-close');
+
+  function open()  { panel.hidden = false; refresh(); }
+  function close() { panel.hidden = true; }
+
+  function refresh() {
+    if (panel.hidden) return;
+    const q   = Player.getQueue();
+    const idx = Player.getQueueIndex();
+    listEl.innerHTML = '';
+
+    if (q.length === 0) {
+      listEl.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;">Queue is empty</div>';
+      return;
     }
-  });
 
-  audio.addEventListener('pause', () => {
-    btnPlay.textContent = '▶';
-  });
+    q.forEach((path, i) => {
+      const item = document.createElement('div');
+      item.className = 'queue-item' + (i === idx ? ' current' : '');
 
-  audio.addEventListener('play', () => {
-    btnPlay.textContent = '⏸';
-  });
+      const num = document.createElement('span');
+      num.className = 'queue-item-num';
+      if (i !== idx) num.textContent = i + 1;
 
-  seekBar.addEventListener('mousedown', () => { isSeeking = true; });
-  seekBar.addEventListener('touchstart', () => { isSeeking = true; });
-  seekBar.addEventListener('input', () => {
-    if (isFinite(audio.duration)) {
-      timeCurrent.textContent = formatTime((seekBar.value / 100) * audio.duration);
-    }
-  });
-  seekBar.addEventListener('change', () => {
-    if (isFinite(audio.duration)) {
-      audio.currentTime = (seekBar.value / 100) * audio.duration;
-    }
-    isSeeking = false;
-  });
+      const name = document.createElement('span');
+      name.className = 'queue-item-name';
+      name.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
 
-  volumeBar.addEventListener('input', () => {
-    audio.volume = volumeBar.value;
-  });
+      item.append(num, name);
+      item.addEventListener('click', () => { Player.jumpTo(i); close(); });
+      listEl.appendChild(item);
+    });
 
-  return { paused, enqueueOne, enqueueAndPlay };
+    // Scroll current into view
+    const cur = listEl.querySelector('.current');
+    if (cur) cur.scrollIntoView({ block: 'nearest' });
+  }
+
+  closeBtn.addEventListener('click', close);
+
+  return { open, close, refresh };
+})();
+
+// ── Fullscreen Player ─────────────────────────────────────────────────────────
+
+const FullscreenPlayer = (() => {
+  const el = document.getElementById('fullscreen-player');
+
+  function open()  { el.hidden = false; }
+  function close() { el.hidden = true; }
+
+  document.getElementById('fs-close').addEventListener('click', close);
+
+  return { open, close };
 })();
 
 // ── View Toggle ───────────────────────────────────────────────────────────────
@@ -226,31 +456,29 @@ const ViewToggle = (() => {
   btnList.addEventListener('click', () => setView('list'));
   btnGrid.addEventListener('click', () => setView('grid'));
 
-  function get() { return current; }
-
-  // Init button state
   btnList.classList.toggle('active', current === 'list');
   btnGrid.classList.toggle('active', current === 'grid');
 
+  function get() { return current; }
   return { get };
 })();
 
 // ── File Browser ──────────────────────────────────────────────────────────────
 
 const FileBrowser = (() => {
-  const browserEl = document.getElementById('browser');
+  const browserEl   = document.getElementById('browser');
   const breadcrumbEl = document.getElementById('breadcrumb');
-  const searchEl = document.getElementById('search');
+  const searchEl    = document.getElementById('search');
 
-  let currentPath = '';
+  let currentPath  = '';
   let currentItems = [];
-  let playingPath = '';
-  let searchQuery = '';
+  let playingPath  = '';
+  let searchQuery  = '';
 
   function navigate(p) {
-    currentPath = p;
+    currentPath  = p;
     searchEl.value = '';
-    searchQuery = '';
+    searchQuery  = '';
     load();
   }
 
@@ -264,7 +492,7 @@ const FileBrowser = (() => {
       if (!res.ok) throw new Error(res.statusText);
       data = await res.json();
     } catch (e) {
-      browserEl.innerHTML = `<div class="browser-empty">Error loading directory: ${e.message}</div>`;
+      browserEl.innerHTML = `<div class="browser-empty">Error: ${e.message}</div>`;
       return;
     }
 
@@ -276,20 +504,28 @@ const FileBrowser = (() => {
 
   function render() {
     let items = currentItems;
-
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       items = items.filter(i => i.name.toLowerCase().includes(q));
     }
-
     if (items.length === 0) {
       browserEl.innerHTML = '<div class="browser-empty">No files found</div>';
       return;
     }
-
-    const view = ViewToggle.get();
-    if (view === 'grid') renderGrid(items);
+    if (ViewToggle.get() === 'grid') renderGrid(items);
     else renderList(items);
+  }
+
+  function onFileClick(item) {
+    const files   = currentItems.filter(i => i.type === 'file');
+    const paths   = files.map(f => f.path);
+    const idx     = paths.indexOf(item.path);
+
+    if (Player.isActive()) {
+      QueueModal.show(item.path, paths, idx);
+    } else {
+      Player.startQueue(paths, idx);
+    }
   }
 
   function renderList(items) {
@@ -316,28 +552,14 @@ const FileBrowser = (() => {
       if (item.type === 'file') {
         const dur = document.createElement('span');
         dur.textContent = '—';
-        // Fetch duration lazily
         fetchDuration(item.path).then(d => { if (d) dur.textContent = formatTime(d); });
-
         const sz = document.createElement('span');
         sz.textContent = item.size ? formatSize(item.size) : '';
-
         meta.append(dur, sz);
       }
 
       el.append(icon, name, meta);
-
-      el.addEventListener('click', () => {
-        if (item.type === 'dir') {
-          navigate(item.path);
-        } else {
-          const files = currentItems.filter(i => i.type === 'file');
-          const paths = files.map(f => f.path);
-          const idx = paths.indexOf(item.path);
-          Player.enqueueAndPlay(paths, idx);
-        }
-      });
-
+      el.addEventListener('click', () => item.type === 'dir' ? navigate(item.path) : onFileClick(item));
       ul.appendChild(el);
     }
 
@@ -357,49 +579,24 @@ const FileBrowser = (() => {
 
       const thumb = document.createElement('div');
       thumb.className = 'grid-thumb';
+      thumb.textContent = item.type === 'dir' ? '📁' : '🎵';
 
-      if (item.type === 'dir') {
-        thumb.textContent = '📁';
-        // Try folder art
-        const img = document.createElement('img');
-        img.src = `/api/artwork?path=${enc(item.path)}`;
-        img.setAttribute('data-loaded', 'false');
-        img.onload = () => {
-          img.setAttribute('data-loaded', 'true');
-          thumb.textContent = '';
-          thumb.appendChild(img);
-        };
-        img.onerror = () => {};
-      } else {
-        thumb.textContent = '🎵';
-        const img = document.createElement('img');
-        img.src = `/api/artwork?path=${enc(item.path)}`;
-        img.setAttribute('data-loaded', 'false');
-        img.onload = () => {
-          img.setAttribute('data-loaded', 'true');
-          thumb.textContent = '';
-          thumb.appendChild(img);
-        };
-        img.onerror = () => {};
-      }
+      const img = document.createElement('img');
+      img.src = `/api/artwork?path=${enc(item.path)}`;
+      img.setAttribute('data-loaded', 'false');
+      img.onload = () => {
+        img.setAttribute('data-loaded', 'true');
+        thumb.textContent = '';
+        thumb.appendChild(img);
+      };
+      img.onerror = () => {};
 
       const name = document.createElement('span');
       name.className = 'grid-name';
       name.textContent = item.name;
 
       el.append(thumb, name);
-
-      el.addEventListener('click', () => {
-        if (item.type === 'dir') {
-          navigate(item.path);
-        } else {
-          const files = currentItems.filter(i => i.type === 'file');
-          const paths = files.map(f => f.path);
-          const idx = paths.indexOf(item.path);
-          Player.enqueueAndPlay(paths, idx);
-        }
-      });
-
+      el.addEventListener('click', () => item.type === 'dir' ? navigate(item.path) : onFileClick(item));
       grid.appendChild(el);
     }
 
@@ -439,15 +636,9 @@ const FileBrowser = (() => {
 
   function setPlaying(filePath) {
     playingPath = filePath;
-    // Update highlights without full re-render
-    document.querySelectorAll('.list-item, .grid-item').forEach(el => {
-      el.classList.remove('playing');
-    });
-    // Re-render is simplest since items may have changed
     render();
   }
 
-  // Duration cache to avoid refetching
   const durCache = new Map();
   async function fetchDuration(filePath) {
     if (durCache.has(filePath)) return durCache.get(filePath);
@@ -456,18 +647,14 @@ const FileBrowser = (() => {
       const meta = await res.json();
       durCache.set(filePath, meta.duration);
       return meta.duration;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
-  // Search
   searchEl.addEventListener('input', () => {
     searchQuery = searchEl.value.trim();
     render();
   });
 
-  // Initial load
   load();
 
   return { navigate, setPlaying, refresh };

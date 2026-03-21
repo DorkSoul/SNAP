@@ -21,17 +21,17 @@
   <main class="browser" id="browser" role="main"></main>
 
   <footer class="player-bar" id="player-bar">
-    <div class="player-art">
+    <button class="player-art-btn" id="player-art-btn" title="Now playing">
       <img id="player-art-img" src="" alt="" />
-    </div>
-    <div class="player-info">
-      <span id="player-title" class="player-title">—</span>
-      <span id="player-artist" class="player-artist"></span>
-    </div>
+      <span class="art-fallback">&#9835;</span>
+    </button>
     <div class="player-controls">
       <button id="btn-prev" title="Previous">&#9664;&#9664;</button>
-      <button id="btn-play" title="Play/Pause" class="play-btn">&#9654;</button>
+      <button id="btn-play" class="play-btn" title="Play/Pause">&#9654;</button>
       <button id="btn-next" title="Next">&#9654;&#9654;</button>
+      <button id="btn-shuffle" class="extra-btn" title="Shuffle">&#8652;</button>
+      <button id="btn-repeat" class="extra-btn" title="Repeat">&#8635;</button>
+      <button id="btn-queue-view" class="extra-btn" title="View queue">&#9776;</button>
     </div>
     <div class="player-seek">
       <span id="time-current">0:00</span>
@@ -43,6 +43,54 @@
       <input type="range" id="volume-bar" min="0" max="1" value="1" step="0.02" />
     </div>
   </footer>
+
+  <!-- Queue action modal -->
+  <div class="modal-overlay" id="queue-modal" hidden>
+    <div class="modal">
+      <p class="modal-track-name" id="modal-track-name"></p>
+      <button class="modal-btn" id="qm-play-now">&#9654; Play now</button>
+      <button class="modal-btn" id="qm-play-next">&#9654;&#9654; Play next</button>
+      <button class="modal-btn" id="qm-add-end">+ Add to queue</button>
+      <button class="modal-btn modal-cancel" id="qm-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Queue panel -->
+  <div class="queue-panel" id="queue-panel" hidden>
+    <div class="queue-header">
+      <span>Up next</span>
+      <button id="queue-close" title="Close">&#10005;</button>
+    </div>
+    <div class="queue-list" id="queue-list"></div>
+  </div>
+
+  <!-- Fullscreen player -->
+  <div class="fullscreen-player" id="fullscreen-player" hidden>
+    <button class="fs-close" id="fs-close" title="Close">&#10005;</button>
+    <div class="fs-art">
+      <img id="fs-art-img" src="" alt="" />
+      <span class="fs-art-fallback">&#9835;</span>
+    </div>
+    <div class="fs-info">
+      <span id="fs-title" class="fs-title">—</span>
+      <span id="fs-artist" class="fs-artist"></span>
+    </div>
+    <div class="fs-seek">
+      <span id="fs-time-current">0:00</span>
+      <input type="range" id="fs-seek-bar" min="0" max="100" value="0" step="0.1" />
+      <span id="fs-time-total">0:00</span>
+    </div>
+    <div class="fs-controls">
+      <button id="fs-btn-prev" title="Previous">&#9664;&#9664;</button>
+      <button id="fs-btn-play" class="play-btn" title="Play/Pause">&#9654;</button>
+      <button id="fs-btn-next" title="Next">&#9654;&#9654;</button>
+    </div>
+    <div class="fs-extra">
+      <button id="fs-btn-shuffle" class="extra-btn" title="Shuffle">&#8652;</button>
+      <button id="fs-btn-repeat" class="extra-btn" title="Repeat">&#8635;</button>
+      <button id="fs-btn-queue" class="extra-btn" title="Queue">&#9776;</button>
+    </div>
+  </div>
 
   <audio id="audio" preload="metadata"></audio>
   <script src="app.js"></script>
