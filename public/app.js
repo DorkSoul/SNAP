@@ -18,6 +18,79 @@ function formatSize(bytes) {
 
 function enc(p) { return encodeURIComponent(p); }
 
+// ── Media Session (lock screen controls + OS background audio permission) ─────
+
+const MediaSessionManager = (() => {
+  const ms = navigator.mediaSession;
+  if (!ms) return { update: () => {}, setPlaying: () => {}, setPosition: () => {} };
+
+  // Wire OS lock-screen buttons → Player (forward refs resolved at call time)
+  const actions = {
+    play:          () => Player.playPause(),
+    pause:         () => Player.playPause(),
+    previoustrack: () => Player.playPrev(),
+    nexttrack:     () => Player.playNext(),
+    seekto:        d  => { document.getElementById('audio').currentTime = d.seekTime; },
+    seekbackward:  d  => { document.getElementById('audio').currentTime -= (d.seekOffset || 10); },
+    seekforward:   d  => { document.getElementById('audio').currentTime += (d.seekOffset || 10); },
+  };
+  for (const [action, handler] of Object.entries(actions)) {
+    try { ms.setActionHandler(action, handler); } catch (_) {}
+  }
+
+  function update({ title, artist, artworkPath }) {
+    const artwork = artworkPath
+      ? [{ src: `/api/artwork?path=${enc(artworkPath)}`, sizes: '512x512', type: 'image/jpeg' }]
+      : [];
+    ms.metadata = new MediaMetadata({ title: title || 'Unknown', artist: artist || '', artwork });
+  }
+
+  function setPlaying(playing) {
+    ms.playbackState = playing ? 'playing' : 'paused';
+  }
+
+  function setPosition(current, duration, rate) {
+    if (!isFinite(duration) || duration <= 0) return;
+    try {
+      ms.setPositionState({ duration, playbackRate: rate || 1, position: current });
+    } catch (_) {}
+  }
+
+  return { update, setPlaying, setPosition };
+})();
+
+// ── Audio Keep-Alive (silent Web Audio oscillator — aggressive background hold) ─
+
+const AudioKeepAlive = (() => {
+  let ctx = null;
+
+  function start() {
+    if (ctx) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.00001; // effectively silent but non-zero so browser counts it
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 1; // 1 Hz — completely subsonic, inaudible
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+    } catch (e) {
+      console.warn('AudioKeepAlive failed:', e);
+    }
+  }
+
+  function resume() {
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resume();
+  });
+
+  return { start, resume };
+})();
+
 // ── Wake Lock ─────────────────────────────────────────────────────────────────
 
 const WakeLock = (() => {
@@ -154,8 +227,11 @@ const Player = (() => {
           timeTotal.textContent   = tot;
           fsTimeTotal.textContent = tot;
         }
+        MediaSessionManager.update({ title: meta.title || name, artist: meta.artist || '', artworkPath: path });
       })
-      .catch(() => {});
+      .catch(() => {
+        MediaSessionManager.update({ title: name, artist: '', artworkPath: path });
+      });
 
     syncArt(path);
     FileBrowser.setPlaying(path);
@@ -163,6 +239,7 @@ const Player = (() => {
 
     if (play) {
       try {
+        AudioKeepAlive.start();
         await audio.play();
         syncPlayIcon(true);
         WakeLock.acquire();
@@ -289,8 +366,13 @@ const Player = (() => {
     playNext();
     if (audio.paused) WakeLock.release();
   });
-  audio.addEventListener('pause', () => syncPlayIcon(false));
-  audio.addEventListener('play',  () => syncPlayIcon(true));
+  audio.addEventListener('pause', () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); });
+  audio.addEventListener('play',  () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true); });
+
+  // Tick MediaSession position so the OS lock screen scrubber stays accurate
+  setInterval(() => {
+    if (!audio.paused) MediaSessionManager.setPosition(audio.currentTime, audio.duration, audio.playbackRate);
+  }, 1000);
 
   function setupSeekBar(bar, localTimeEl) {
     bar.addEventListener('mousedown', () => { isSeeking = true; });
