@@ -180,6 +180,6 @@ app.get('/api/metadata', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
-  console.log(`mplay listening on http://0.0.0.0:${PORT}`);
+  console.log(`SNAP listening on http://0.0.0.0:${PORT}`);
   console.log(`Media root: ${MEDIA_ROOT}`);
 });

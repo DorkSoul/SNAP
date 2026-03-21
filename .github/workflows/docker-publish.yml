@@ -29,5 +29,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/dorksoul/mediaplay:latest
-            ghcr.io/dorksoul/mediaplay:${{ github.sha }}
+            ghcr.io/dorksoul/snap:latest
+            ghcr.io/dorksoul/snap:${{ github.sha }}

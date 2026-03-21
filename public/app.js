@@ -120,7 +120,7 @@ const Player = (() => {
   let currentPath   = null;
 
   // ── Persistence ──
-  const STORAGE_KEY = 'mplay_state';
+  const STORAGE_KEY = 'snap_state';
   let lastSaveAt = 0;
 
   function saveState() {
@@ -587,7 +587,7 @@ const FullscreenPlayer = (() => {
 // ── View Toggle ───────────────────────────────────────────────────────────────
 
 const ViewToggle = (() => {
-  const PREF_KEY = 'mplay_view';
+  const PREF_KEY = 'snap_view';
   let current = localStorage.getItem(PREF_KEY) || 'list';
 
   const btnList = document.getElementById('btn-list');

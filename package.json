@@ -1,5 +1,5 @@
 {
-  "name": "mplay",
+  "name": "snap",
   "version": "1.0.0",
   "description": "Browser-based file system music player",
   "main": "server.js",

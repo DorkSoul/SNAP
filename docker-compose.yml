@@ -1,6 +1,6 @@
 services:
-  mediaplay:
-    image: ghcr.io/dorksoul/mediaplay:latest
+  snap:
+    image: ghcr.io/dorksoul/snap:latest
     ports:
       - "3000:3000"
     volumes:
