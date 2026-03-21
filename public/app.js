@@ -59,38 +59,6 @@ const MediaSessionManager = (() => {
   return { update, setPlaying, setPosition };
 })();
 
-// ── Audio Keep-Alive (silent Web Audio oscillator — aggressive background hold) ─
-
-const AudioKeepAlive = (() => {
-  let ctx = null;
-
-  function start() {
-    if (ctx) return;
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.00001; // effectively silent but non-zero so browser counts it
-      const osc = ctx.createOscillator();
-      osc.frequency.value = 1; // 1 Hz — completely subsonic, inaudible
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-    } catch (e) {
-      console.warn('AudioKeepAlive failed:', e);
-    }
-  }
-
-  function resume() {
-    if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') resume();
-  });
-
-  return { start, resume };
-})();
-
 // ── Wake Lock ─────────────────────────────────────────────────────────────────
 
 const WakeLock = (() => {
@@ -239,7 +207,6 @@ const Player = (() => {
 
     if (play) {
       try {
-        AudioKeepAlive.start();
         await audio.play();
         syncPlayIcon(true);
         WakeLock.acquire();
