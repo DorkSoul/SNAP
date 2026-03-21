@@ -555,6 +555,11 @@ input[type=range]::-moz-range-thumb {
 .fs-art img:not([src]),
 .fs-art img[src=""] { display: none; }
 
+/* Hide fallback when artwork is loaded; show it only when img src is empty */
+.fs-art-fallback { display: none; }
+.fs-art img:not([src]) ~ .fs-art-fallback,
+.fs-art img[src=""] ~ .fs-art-fallback { display: block; }
+
 .fs-info {
   display: flex;
   flex-direction: column;
