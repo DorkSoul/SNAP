@@ -1024,6 +1024,12 @@ const FileBrowser = (() => {
   return { navigate, setPlaying, refresh };
 })();
 
+// Keep --player-h in sync with the actual rendered player bar height
+new ResizeObserver(entries => {
+  const h = entries[0].target.offsetHeight;
+  if (h > 0) document.documentElement.style.setProperty('--player-h', h + 'px');
+}).observe(document.getElementById('player-bar'));
+
 // Restore queue + position after all modules are initialised
 Player.restore();
 if (!Player.isActive()) document.body.classList.add('player-hidden');

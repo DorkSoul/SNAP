@@ -768,14 +768,13 @@ input[type=range]::-moz-range-thumb {
     grid-template-rows: auto auto auto;
     column-gap: 4px;
     row-gap: 2px;
-    padding: 6px 8px;
-    padding-bottom: calc(4px + env(safe-area-inset-bottom));
+    padding: 6px 8px 4px;
     height: auto;
     align-items: center;
   }
 
   .browser {
-    bottom: calc(var(--player-h) + env(safe-area-inset-bottom));
+    bottom: var(--player-h);
   }
 
   /* Thumbnail — square, spans rows 1+2 */
@@ -835,7 +834,7 @@ input[type=range]::-moz-range-thumb {
   .player-volume { display: none; }
 
   .select-bar {
-    bottom: calc(var(--player-h) + env(safe-area-inset-bottom));
+    bottom: var(--player-h);
   }
 
   .queue-panel {
