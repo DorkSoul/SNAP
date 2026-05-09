@@ -520,10 +520,11 @@ input[type=range]::-moz-range-thumb {
   color: var(--text-muted);
   font-size: 11px;
   width: 18px;
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
-.queue-item.current .queue-item-num::before { content: '▶'; font-size: 9px; }
 .queue-item.current .queue-item-num { color: var(--accent); }
 
 .queue-item-thumb {
