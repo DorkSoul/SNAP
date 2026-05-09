@@ -935,7 +935,8 @@ const FileBrowser = (() => {
       img.src = `/api/artwork?path=${enc(item.path)}`;
       img.setAttribute('data-loaded', 'false');
       img.onload = () => { img.setAttribute('data-loaded', 'true'); thumb.textContent = ''; thumb.appendChild(img); };
-      img.onerror = () => {};
+      img.onerror = () => { img.remove(); };
+      thumb.appendChild(img);
     }
 
     const name = document.createElement('span');
