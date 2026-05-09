@@ -605,14 +605,17 @@ const QueuePanel = (() => {
     handle.addEventListener('click', e => e.stopPropagation());
 
     function onMove(e) {
+      const qIdx = Player.getQueueIndex();
+      const minInsert = qIdx + 1;
       clearDropIndicators();
       const items = Array.from(listEl.querySelectorAll('.queue-item'));
       let placed = false;
       for (let i = 0; i < items.length; i++) {
         const rect = items[i].getBoundingClientRect();
         if (e.clientY < rect.top + rect.height / 2) {
-          items[i].classList.add('drop-before');
-          insertBeforeIdx = i;
+          const clamped = Math.max(i, minInsert);
+          if (items[clamped]) items[clamped].classList.add('drop-before');
+          insertBeforeIdx = clamped;
           placed = true;
           break;
         }
@@ -662,10 +665,11 @@ const QueuePanel = (() => {
       const item = document.createElement('div');
       item.className = 'queue-item' + (isCurrent ? ' current' : '');
 
+      const canDrag = i > idx;
       const handle = document.createElement('span');
-      handle.className = 'queue-drag-handle' + (isCurrent ? ' queue-drag-handle--disabled' : '');
+      handle.className = 'queue-drag-handle' + (!canDrag ? ' queue-drag-handle--disabled' : '');
       handle.textContent = '\u2630';
-      if (!isCurrent) setupDragHandle(handle, i);
+      if (canDrag) setupDragHandle(handle, i);
 
       const num = document.createElement('span');
       num.className = 'queue-item-num';
