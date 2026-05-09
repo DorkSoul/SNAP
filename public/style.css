@@ -118,7 +118,7 @@ html, body {
   transition: color 0.15s;
 }
 .crumb:hover { color: var(--accent); }
-.crumb.active { color: var(--text); cursor: default; }
+.crumb.active { color: var(--text); cursor: default; border: 1px solid var(--border); padding: 2px 8px; }
 .crumb-sep { color: var(--text-muted); user-select: none; font-weight: 600; }
 
 /* ── File browser ── */
@@ -221,6 +221,13 @@ html, body {
 }
 
 /* ── Player bar ── */
+.player-bar[hidden] { display: none; }
+
+body.player-hidden .browser,
+body.player-hidden .select-bar { bottom: 0 !important; }
+
+.player-clear-btn { font-size: 14px !important; }
+
 .player-bar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
@@ -753,7 +760,7 @@ input[type=range]::-moz-range-thumb {
 
 /* ── Mobile adjustments ── */
 @media (max-width: 600px) {
-  :root { --player-h: 118px; }
+  :root { --player-h: 106px; }
 
   .player-bar {
     display: grid;

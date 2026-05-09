@@ -87,6 +87,7 @@ const Player = (() => {
   const audio = document.getElementById('audio');
 
   // Player bar
+  const playerBar     = document.getElementById('player-bar');
   const artImg        = document.getElementById('player-art-img');
   const btnPlay       = document.getElementById('btn-play');
   const btnPrev       = document.getElementById('btn-prev');
@@ -188,6 +189,8 @@ const Player = (() => {
 
   // ── Load & play ──
   async function loadTrack(path, play = true) {
+    playerBar.hidden = false;
+    document.body.classList.remove('player-hidden');
     currentPath = path;
     saveState();
     audio.src = `/api/stream?path=${enc(path)}`;
@@ -452,8 +455,40 @@ const Player = (() => {
 
       FileBrowser.setPlaying(currentPath);
       QueuePanel.refresh();
+      playerBar.hidden = false;
+      document.body.classList.remove('player-hidden');
     } catch (_) {}
   }
+
+  function clear() {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    queue = [];
+    originalQueue = null;
+    queueIndex = -1;
+    currentPath = null;
+
+    syncPlayIcon(false);
+    artImg.src = '';
+    fsArtImg.src = '';
+    [seekBar, fsSeekBar].forEach(s => { s.value = 0; });
+    [timeCurrent, fsTimeCurrent, timeTotal, fsTimeTotal].forEach(t => { t.textContent = '0:00'; });
+    fsTitle.textContent = '';
+    fsArtist.textContent = '';
+
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+
+    FileBrowser.setPlaying(null);
+    QueuePanel.refresh();
+    WakeLock.release();
+    FullscreenPlayer.close();
+
+    playerBar.hidden = true;
+    document.body.classList.add('player-hidden');
+  }
+
+  document.getElementById('btn-clear').addEventListener('click', clear);
 
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
@@ -627,6 +662,15 @@ const FileBrowser = (() => {
   let currentItems = [];
   let playingPath  = '';
   let searchQuery  = '';
+
+  const durationObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const el = entry.target;
+      durationObserver.unobserve(el);
+      fetchDuration(el.dataset.durPath).then(d => { if (d) el.textContent = formatTime(d); });
+    }
+  }, { rootMargin: '200px' });
 
   // Multi-select state
   let selectMode    = false;
@@ -844,7 +888,8 @@ const FileBrowser = (() => {
     if (item.type === 'file') {
       const dur = document.createElement('span');
       dur.textContent = '—';
-      fetchDuration(item.path).then(d => { if (d) dur.textContent = formatTime(d); });
+      dur.dataset.durPath = item.path;
+      durationObserver.observe(dur);
       const sz = document.createElement('span');
       sz.textContent = item.size ? formatSize(item.size) : '';
       meta.append(dur, sz);
@@ -886,6 +931,7 @@ const FileBrowser = (() => {
       thumb.appendChild(overlay);
     } else {
       const img = document.createElement('img');
+      img.loading = 'lazy';
       img.src = `/api/artwork?path=${enc(item.path)}`;
       img.setAttribute('data-loaded', 'false');
       img.onload = () => { img.setAttribute('data-loaded', 'true'); thumb.textContent = ''; thumb.appendChild(img); };
@@ -972,3 +1018,4 @@ const FileBrowser = (() => {
 
 // Restore queue + position after all modules are initialised
 Player.restore();
+if (!Player.isActive()) document.body.classList.add('player-hidden');

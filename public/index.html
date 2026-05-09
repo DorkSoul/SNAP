@@ -21,7 +21,7 @@
 
   <main class="browser" id="browser" role="main"></main>
 
-  <footer class="player-bar" id="player-bar">
+  <footer class="player-bar" id="player-bar" hidden>
     <button class="player-art-btn" id="player-art-btn" title="Now playing">
       <img id="player-art-img" src="" alt="" />
       <span class="art-fallback">&#9835;</span>
@@ -34,6 +34,7 @@
     <div class="player-mid-row">
       <button id="btn-shuffle" class="extra-btn" title="Shuffle">&#8652;</button>
       <button id="btn-repeat" class="extra-btn" title="Repeat">&#8635;</button>
+      <button id="btn-clear" class="extra-btn player-clear-btn" title="Clear queue">&#10005;</button>
     </div>
     <button id="btn-queue-view" class="extra-btn queue-view-btn" title="View queue">&#9776;</button>
     <div class="player-seek">
