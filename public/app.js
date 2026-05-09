@@ -744,12 +744,13 @@ const QueuePanel = (() => {
 const FullscreenPlayer = (() => {
   const el = document.getElementById('fullscreen-player');
 
-  function open()  { el.hidden = false; }
+  function open()  { history.pushState({ type: 'fullscreen' }, ''); el.hidden = false; }
   function close() { el.hidden = true; }
+  function isOpen() { return !el.hidden; }
 
-  document.getElementById('fs-close').addEventListener('click', close);
+  document.getElementById('fs-close').addEventListener('click', () => history.back());
 
-  return { open, close };
+  return { open, close, isOpen };
 })();
 
 // ── View Toggle ───────────────────────────────────────────────────────────────
@@ -900,8 +901,9 @@ const FileBrowser = (() => {
   }
 
   // ── Navigation ──
-  function navigate(p) {
+  function navigate(p, push = true) {
     if (selectMode) exitSelectMode();
+    if (push) history.pushState({ type: 'browse', path: p }, '');
     currentPath  = p;
     searchEl.value = '';
     searchQuery  = '';
@@ -1152,6 +1154,7 @@ const FileBrowser = (() => {
     render();
   });
 
+  history.replaceState({ type: 'browse', path: '' }, '');
   load();
 
   return { navigate, setPlaying, refresh };
@@ -1166,3 +1169,14 @@ new ResizeObserver(entries => {
 // Restore queue + position after all modules are initialised
 Player.restore();
 if (!Player.isActive()) document.body.classList.add('player-hidden');
+
+// Back button: close fullscreen or navigate up the file tree
+window.addEventListener('popstate', e => {
+  const state = e.state;
+  if (!state) return;
+  if (FullscreenPlayer.isOpen()) {
+    FullscreenPlayer.close();
+  } else if (state.type === 'browse') {
+    FileBrowser.navigate(state.path, false);
+  }
+});
