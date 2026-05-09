@@ -402,6 +402,15 @@ const Player = (() => {
     QueuePanel.open();
   });
 
+  // Skip ±30s
+  document.getElementById('fs-btn-skip-back').addEventListener('click', () => {
+    audio.currentTime = Math.max(0, audio.currentTime - 30);
+  });
+  document.getElementById('fs-btn-skip-fwd').addEventListener('click', () => {
+    if (isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, audio.currentTime + 30);
+    else audio.currentTime += 30;
+  });
+
   // ── Restore persisted state on page load ──
   function restore() {
     try {
