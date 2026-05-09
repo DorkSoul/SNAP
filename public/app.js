@@ -490,10 +490,33 @@ const Player = (() => {
 
   document.getElementById('btn-clear').addEventListener('click', clear);
 
+  function removeFromQueue(idx) {
+    if (idx === queueIndex) return;
+    const path = queue[idx];
+    queue.splice(idx, 1);
+    if (originalQueue) {
+      const oi = originalQueue.indexOf(path);
+      if (oi !== -1) originalQueue.splice(oi, 1);
+    }
+    if (idx < queueIndex) queueIndex--;
+    saveState();
+    QueuePanel.refresh();
+  }
+
+  function reorderQueue(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx === queueIndex) return;
+    const [item] = queue.splice(fromIdx, 1);
+    queue.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, item);
+    queueIndex = currentPath ? queue.indexOf(currentPath) : queueIndex;
+    originalQueue = queue.slice();
+    saveState();
+    QueuePanel.refresh();
+  }
+
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
-    playPause, playNext, playPrev, restore
+    playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue
   };
 })();
 
@@ -553,9 +576,72 @@ const QueueModal = (() => {
 // ── Queue Panel ───────────────────────────────────────────────────────────────
 
 const QueuePanel = (() => {
-  const panel     = document.getElementById('queue-panel');
-  const listEl    = document.getElementById('queue-list');
-  const closeBtn  = document.getElementById('queue-close');
+  const panel    = document.getElementById('queue-panel');
+  const listEl   = document.getElementById('queue-list');
+  const closeBtn = document.getElementById('queue-close');
+
+  let dragFromIdx     = null;
+  let insertBeforeIdx = null;
+
+  function clearDropIndicators() {
+    listEl.querySelectorAll('.drop-before, .drop-after').forEach(el => {
+      el.classList.remove('drop-before', 'drop-after');
+    });
+  }
+
+  function setupDragHandle(handle, fromIdx) {
+    handle.addEventListener('pointerdown', e => {
+      if (e.button > 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragFromIdx     = fromIdx;
+      insertBeforeIdx = null;
+      handle.setPointerCapture(e.pointerId);
+      handle.closest('.queue-item').classList.add('queue-dragging');
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onCancel);
+    });
+    handle.addEventListener('click', e => e.stopPropagation());
+
+    function onMove(e) {
+      clearDropIndicators();
+      const items = Array.from(listEl.querySelectorAll('.queue-item'));
+      let placed = false;
+      for (let i = 0; i < items.length; i++) {
+        const rect = items[i].getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) {
+          items[i].classList.add('drop-before');
+          insertBeforeIdx = i;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        if (items.length) items[items.length - 1].classList.add('drop-after');
+        insertBeforeIdx = items.length;
+      }
+    }
+
+    function onUp() {
+      if (dragFromIdx !== null && insertBeforeIdx !== null)
+        Player.reorderQueue(dragFromIdx, insertBeforeIdx);
+      cleanup();
+    }
+
+    function onCancel() { cleanup(); }
+
+    function cleanup() {
+      const el = listEl.querySelector('.queue-dragging');
+      if (el) el.classList.remove('queue-dragging');
+      clearDropIndicators();
+      dragFromIdx     = null;
+      insertBeforeIdx = null;
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+    }
+  }
 
   function open()  { panel.hidden = false; refresh(); }
   function close() { panel.hidden = true; }
@@ -572,12 +658,18 @@ const QueuePanel = (() => {
     }
 
     q.forEach((path, i) => {
+      const isCurrent = i === idx;
       const item = document.createElement('div');
-      item.className = 'queue-item' + (i === idx ? ' current' : '');
+      item.className = 'queue-item' + (isCurrent ? ' current' : '');
+
+      const handle = document.createElement('span');
+      handle.className = 'queue-drag-handle' + (isCurrent ? ' queue-drag-handle--disabled' : '');
+      handle.textContent = '\u2630';
+      if (!isCurrent) setupDragHandle(handle, i);
 
       const num = document.createElement('span');
       num.className = 'queue-item-num';
-      if (i !== idx) num.textContent = i + 1;
+      if (!isCurrent) num.textContent = i + 1;
 
       const thumb = document.createElement('div');
       thumb.className = 'queue-item-thumb';
@@ -591,18 +683,26 @@ const QueuePanel = (() => {
       name.className = 'queue-item-name';
       name.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
 
-      item.append(num, thumb, name);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'queue-item-remove';
+      removeBtn.textContent = '\u2715';
+      removeBtn.title = 'Remove from queue';
+      if (isCurrent) {
+        removeBtn.disabled = true;
+      } else {
+        removeBtn.addEventListener('click', e => { e.stopPropagation(); Player.removeFromQueue(i); });
+      }
+
+      item.append(handle, num, thumb, name, removeBtn);
       item.addEventListener('click', () => { Player.jumpTo(i); close(); });
       listEl.appendChild(item);
     });
 
-    // Scroll current into view
     const cur = listEl.querySelector('.current');
     if (cur) cur.scrollIntoView({ block: 'nearest' });
   }
 
   closeBtn.addEventListener('click', close);
-
   return { open, close, refresh };
 })();
 

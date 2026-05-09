@@ -475,14 +475,47 @@ input[type=range]::-moz-range-thumb {
 .queue-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
   cursor: pointer;
   transition: background 0.12s;
   font-size: 13px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
 }
 .queue-item:hover { background: var(--surface2); }
 .queue-item.current { color: var(--accent); }
+.queue-item.queue-dragging { opacity: 0.35; }
+.queue-item.drop-before { border-top-color: var(--accent); }
+.queue-item.drop-after  { border-bottom-color: var(--accent); }
+
+.queue-drag-handle {
+  flex-shrink: 0;
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 3px;
+  user-select: none;
+  touch-action: none;
+  line-height: 1;
+}
+.queue-drag-handle:active { cursor: grabbing; }
+.queue-drag-handle--disabled { opacity: 0; pointer-events: none; }
+
+.queue-item-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 5px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+.queue-item-remove:hover { color: var(--text); }
+.queue-item-remove:disabled { opacity: 0; pointer-events: none; }
 .queue-item-num {
   color: var(--text-muted);
   font-size: 11px;
