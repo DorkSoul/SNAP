@@ -672,6 +672,18 @@ const FileBrowser = (() => {
     }
   }, { rootMargin: '200px' });
 
+  const artworkObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const thumb = entry.target;
+      artworkObserver.unobserve(thumb);
+      const img = document.createElement('img');
+      img.src = `/api/artwork?path=${enc(thumb.dataset.artPath)}`;
+      img.onload = () => { thumb.textContent = ''; thumb.appendChild(img); };
+      img.onerror = () => {};
+    }
+  }, { rootMargin: '400px' });
+
   // Multi-select state
   let selectMode    = false;
   let selectedPaths = new Set();
@@ -929,14 +941,9 @@ const FileBrowser = (() => {
       overlay.className = 'grid-select-overlay';
       overlay.textContent = selectedPaths.has(item.path) ? '\u2713' : '';
       thumb.appendChild(overlay);
-    } else {
-      const img = document.createElement('img');
-      img.loading = 'lazy';
-      img.src = `/api/artwork?path=${enc(item.path)}`;
-      img.setAttribute('data-loaded', 'false');
-      img.onload = () => { img.setAttribute('data-loaded', 'true'); thumb.textContent = ''; thumb.appendChild(img); };
-      img.onerror = () => { img.remove(); };
-      thumb.appendChild(img);
+    } else if (item.type === 'file') {
+      thumb.dataset.artPath = item.path;
+      artworkObserver.observe(thumb);
     }
 
     const name = document.createElement('span');
