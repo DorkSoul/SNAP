@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - testing
 
 jobs:
   build-and-push:
@@ -29,5 +30,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/dorksoul/snap:latest
+            ghcr.io/dorksoul/snap:${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
             ghcr.io/dorksoul/snap:${{ github.sha }}
