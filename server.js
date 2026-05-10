@@ -4,6 +4,7 @@ const fs = require('fs');
 const mime = require('mime-types');
 
 const app = express();
+app.use(express.json({ limit: '2kb' }));
 const PORT = process.env.PORT || 3000;
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
 
@@ -78,6 +79,7 @@ app.get('/api/stream', (req, res) => {
   const mimeType = mime.lookup(full) || 'application/octet-stream';
   const fileSize = stat.size;
   const range = req.headers.range;
+  const name = path.basename(full);
 
   if (range) {
     const parts = range.replace(/bytes=/, '').split('-');
@@ -85,20 +87,30 @@ app.get('/api/stream', (req, res) => {
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunkSize = end - start + 1;
 
+    console.log(`[stream] "${name}" bytes=${start}-${end}/${fileSize}`);
+    const stream = fs.createReadStream(full, { start, end });
+    stream.on('close', () => console.log(`[stream] "${name}" closed at ${start}-${end}`));
+    stream.on('error', e => console.log(`[stream] "${name}" error: ${e.message}`));
+
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
     });
-    fs.createReadStream(full, { start, end }).pipe(res);
+    stream.pipe(res);
   } else {
+    console.log(`[stream] "${name}" full (no range), size=${fileSize}`);
+    const stream = fs.createReadStream(full);
+    stream.on('close', () => console.log(`[stream] "${name}" closed (full)`));
+    stream.on('error', e => console.log(`[stream] "${name}" error: ${e.message}`));
+
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
       'Accept-Ranges': 'bytes',
     });
-    fs.createReadStream(full).pipe(res);
+    stream.pipe(res);
   }
 });
 
@@ -174,6 +186,15 @@ app.get('/api/metadata', async (req, res) => {
       size: stat.size,
     });
   }
+});
+
+// Client-side event log (audio lifecycle, visibility changes, reconnects)
+app.post('/api/clientlog', (req, res) => {
+  const { event, data } = req.body || {};
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 23);
+  const extra = data ? ' ' + JSON.stringify(data) : '';
+  console.log(`[client ${ts}] ${event}${extra}`);
+  res.json({ ok: true });
 });
 
 // Serve frontend

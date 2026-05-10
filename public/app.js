@@ -1,5 +1,13 @@
 'use strict';
 
+// ── Remote logging (shows up in docker logs) ──────────────────────────────────
+function clog(event, data) {
+  try {
+    const body = JSON.stringify({ event, data });
+    navigator.sendBeacon('/api/clientlog', new Blob([body], { type: 'application/json' }));
+  } catch (_) {}
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function formatTime(sec) {
@@ -383,8 +391,11 @@ const Player = (() => {
     playNext();
     if (audio.paused) WakeLock.release();
   });
-  audio.addEventListener('pause', () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); });
-  audio.addEventListener('play',  () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true); });
+  audio.addEventListener('pause',   () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  audio.addEventListener('play',    () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  audio.addEventListener('stalled', () => clog('audio:stalled', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
+  audio.addEventListener('waiting', () => clog('audio:waiting', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
+  audio.addEventListener('error',   () => clog('audio:error',   { code: audio.error?.code, msg: audio.error?.message, t: Math.round(audio.currentTime) }));
 
   // Reconnect if the stream drops (e.g. phone locked, NAS timeout, Android throttling)
   let stallTimer = null;
@@ -399,6 +410,7 @@ const Player = (() => {
         clearInterval(stallTimer);
         stallTimer = null;
         const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
+        clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition) });
         if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
         audio.src = `/api/stream?path=${enc(currentPath)}`;
         audio.play().catch(() => {});
@@ -413,10 +425,12 @@ const Player = (() => {
   audio.addEventListener('error', () => {
     if (!currentPath) return;
     const code = audio.error && audio.error.code;
+    clog('error:handler', { code, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
     if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
     clearInterval(stallTimer);
     stallTimer = null;
     const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
+    clog('error:reconnect', { pos: Math.round(pos) });
     if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
     audio.src = `/api/stream?path=${enc(currentPath)}`;
     audio.play().catch(() => {});
@@ -588,6 +602,7 @@ const Player = (() => {
   // when the buffer fills and the window goes to zero.
   let wifiKeepAlive = null;
   document.addEventListener('visibilitychange', () => {
+    clog('visibility', { hidden: document.hidden, paused: audio.paused, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
     if (document.hidden) {
       if (!audio.paused) {
         wifiKeepAlive = setInterval(() => {
@@ -607,6 +622,7 @@ const Player = (() => {
   // This fires only when currentTime < 1 AND we had been > 1s into the track.
   audio.addEventListener('play', () => {
     if (audio.currentTime < 1 && lastGoodPosition > 1) {
+      clog('play:restore', { lgp: Math.round(lastGoodPosition) });
       if (audio.readyState >= 1) {
         audio.currentTime = lastGoodPosition;
       } else {
