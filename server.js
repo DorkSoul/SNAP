@@ -179,7 +179,11 @@ app.get('/api/metadata', async (req, res) => {
 // Serve frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`SNAP listening on http://0.0.0.0:${PORT}`);
   console.log(`Media root: ${MEDIA_ROOT}`);
 });
+// Disable timeouts that would cut long-running audio streams
+server.timeout = 0;
+server.requestTimeout = 0;
+server.keepAliveTimeout = 30000;

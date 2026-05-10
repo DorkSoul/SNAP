@@ -381,6 +381,29 @@ const Player = (() => {
   audio.addEventListener('pause', () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); });
   audio.addEventListener('play',  () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true); });
 
+  // Reconnect if the stream drops (e.g. phone locked, NAS timeout, Android throttling)
+  let stallTimer = null;
+  let lastStallTime = -1;
+  function startStallWatch() {
+    clearInterval(stallTimer);
+    lastStallTime = audio.currentTime;
+    stallTimer = setInterval(() => {
+      if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
+      if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
+      if (audio.currentTime === lastStallTime) {
+        clearInterval(stallTimer);
+        stallTimer = null;
+        const pos = audio.currentTime;
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
+        audio.src = `/api/stream?path=${enc(currentPath)}`;
+        audio.play().catch(() => {});
+      }
+      lastStallTime = audio.currentTime;
+    }, 4000);
+  }
+  audio.addEventListener('play',  startStallWatch);
+  audio.addEventListener('pause', () => clearInterval(stallTimer));
+
   // Tick MediaSession position so the OS lock screen scrubber stays accurate
   setInterval(() => {
     if (!audio.paused) MediaSessionManager.setPosition(audio.currentTime, audio.duration, audio.playbackRate);
