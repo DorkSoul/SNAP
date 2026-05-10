@@ -577,16 +577,30 @@ const Player = (() => {
     QueuePanel.refresh();
   }
 
-  // Save position when screen turns off; restore if browser resets to 0 on wake
+  // Save position when screen turns off; restore if browser resets to 0 on wake.
+  // Also fire a periodic fetch while hidden so the WiFi radio stays awake and
+  // the router's connection-tracking timer resets — same job that YouTube's
+  // DASH segment requests do naturally. Without this, home routers see the
+  // audio TCP stream go quiet (full buffer → zero window → no data) and evict it.
   let posBeforeHide = null;
   let pathBeforeHide = null;
+  let wifiKeepAlive = null;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       posBeforeHide = (!audio.paused && isFinite(audio.currentTime) && audio.currentTime > 1)
         ? audio.currentTime : null;
       pathBeforeHide = currentPath;
+      if (!audio.paused) {
+        wifiKeepAlive = setInterval(() => {
+          fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) }).catch(() => {});
+        }, 20000);
+      }
+    } else {
+      clearInterval(wifiKeepAlive);
+      wifiKeepAlive = null;
     }
   });
+  audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); wifiKeepAlive = null; });
   audio.addEventListener('play', () => {
     if (posBeforeHide !== null && currentPath === pathBeforeHide && audio.currentTime < 1) {
       const target = posBeforeHide;
