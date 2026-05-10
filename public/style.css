@@ -121,6 +121,24 @@ html, body {
 .crumb.active { color: var(--text); cursor: default; border: 1px solid var(--border); padding: 2px 8px; }
 .crumb-sep { color: var(--text-muted); user-select: none; font-weight: 600; }
 
+/* ── Pull to refresh ── */
+#ptr-indicator {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--breadcrumb-h));
+  left: 0; right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  color: var(--text-muted);
+  z-index: 89;
+  transform: translateY(-52px);
+}
+.ptr-arrow { transition: transform 0.2s ease; }
+#ptr-indicator.ptr-ready .ptr-arrow { transform: rotate(180deg); }
+
 /* ── File browser ── */
 .browser {
   position: fixed;
@@ -128,6 +146,7 @@ html, body {
   bottom: var(--player-h);
   left: 0; right: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 12px;
 }
 .browser::-webkit-scrollbar { width: 6px; }

@@ -1157,7 +1157,9 @@ const FileBrowser = (() => {
   history.replaceState({ type: 'browse', path: '' }, '');
   load();
 
-  return { navigate, setPlaying, refresh };
+  function reload() { load(); }
+
+  return { navigate, setPlaying, refresh, reload };
 })();
 
 // Keep --player-h in sync with the actual rendered player bar height
@@ -1169,6 +1171,56 @@ new ResizeObserver(entries => {
 // Restore queue + position after all modules are initialised
 Player.restore();
 if (!Player.isActive()) document.body.classList.add('player-hidden');
+
+// Pull to refresh
+(() => {
+  const browserEl  = document.getElementById('browser');
+  const indicator  = document.getElementById('ptr-indicator');
+  const IND_H      = 52;
+  const THRESHOLD  = 72;
+  let startY = 0, startX = 0, active = false, pull = 0;
+
+  browserEl.addEventListener('touchstart', e => {
+    if (browserEl.scrollTop === 0) {
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      active = true;
+      pull = 0;
+      browserEl.style.transition = '';
+      indicator.style.transition = '';
+    }
+  }, { passive: true });
+
+  browserEl.addEventListener('touchmove', e => {
+    if (!active) return;
+    const dy = e.touches[0].clientY - startY;
+    const dx = Math.abs(e.touches[0].clientX - startX);
+    if (dy <= 0 || dx > dy) { active = false; return; }
+    e.preventDefault();
+    pull = Math.min(IND_H + THRESHOLD * 0.6, dy * 0.45);
+    browserEl.style.transform = `translateY(${pull}px)`;
+    indicator.style.transform = `translateY(${pull - IND_H}px)`;
+    indicator.style.opacity   = String(Math.min(1, pull / IND_H * 1.5));
+    indicator.classList.toggle('ptr-ready', pull >= THRESHOLD);
+  }, { passive: false });
+
+  function release() {
+    if (!active) return;
+    active = false;
+    const doRefresh = pull >= THRESHOLD;
+    pull = 0;
+    browserEl.style.transition  = 'transform 0.25s ease';
+    indicator.style.transition  = 'transform 0.25s ease, opacity 0.25s ease';
+    browserEl.style.transform   = '';
+    indicator.style.transform   = `translateY(-${IND_H}px)`;
+    indicator.style.opacity     = '0';
+    indicator.classList.remove('ptr-ready');
+    if (doRefresh) FileBrowser.reload();
+  }
+
+  browserEl.addEventListener('touchend',    release, { passive: true });
+  browserEl.addEventListener('touchcancel', release, { passive: true });
+})();
 
 // Back button: close fullscreen or navigate up the file tree
 window.addEventListener('popstate', e => {
