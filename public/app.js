@@ -388,7 +388,7 @@ const Player = (() => {
     clearInterval(stallTimer);
     lastStallTime = audio.currentTime;
     stallTimer = setInterval(() => {
-      if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
+      if (audio.paused || !currentPath || isSeeking || document.hidden) { lastStallTime = audio.currentTime; return; }
       if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
       if (audio.currentTime === lastStallTime) {
         clearInterval(stallTimer);
@@ -403,6 +403,19 @@ const Player = (() => {
   }
   audio.addEventListener('play',  startStallWatch);
   audio.addEventListener('pause', () => clearInterval(stallTimer));
+
+  // Reload from saved position on network errors (connection dropped by router)
+  audio.addEventListener('error', () => {
+    if (!currentPath) return;
+    const code = audio.error && audio.error.code;
+    if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
+    clearInterval(stallTimer);
+    stallTimer = null;
+    const pos = isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
+    if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
+    audio.src = `/api/stream?path=${enc(currentPath)}`;
+    audio.play().catch(() => {});
+  });
 
   // Tick MediaSession position so the OS lock screen scrubber stays accurate
   setInterval(() => {
@@ -563,6 +576,32 @@ const Player = (() => {
     saveState();
     QueuePanel.refresh();
   }
+
+  // Save position when screen turns off; restore if browser resets to 0 on wake
+  let posBeforeHide = null;
+  let pathBeforeHide = null;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      posBeforeHide = (!audio.paused && isFinite(audio.currentTime) && audio.currentTime > 1)
+        ? audio.currentTime : null;
+      pathBeforeHide = currentPath;
+    }
+  });
+  audio.addEventListener('play', () => {
+    if (posBeforeHide !== null && currentPath === pathBeforeHide && audio.currentTime < 1) {
+      const target = posBeforeHide;
+      posBeforeHide = null;
+      pathBeforeHide = null;
+      if (audio.readyState >= 1) {
+        audio.currentTime = target;
+      } else {
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = target; }, { once: true });
+      }
+    } else {
+      posBeforeHide = null;
+      pathBeforeHide = null;
+    }
+  });
 
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
