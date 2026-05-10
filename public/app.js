@@ -144,6 +144,7 @@ const Player = (() => {
   // ── Persistence ──
   const STORAGE_KEY = 'snap_state';
   let lastSaveAt = 0;
+  let lastGoodPosition = 0; // last currentTime > 1s, survives connection resets
 
   function saveState() {
     try {
@@ -211,6 +212,7 @@ const Player = (() => {
     playerBar.hidden = false;
     document.body.classList.remove('player-hidden');
     currentPath = path;
+    lastGoodPosition = 0; // new track - don't restore old position on play events
     saveState();
     audio.src = `/api/stream?path=${enc(path)}`;
     audio.load();
@@ -369,10 +371,13 @@ const Player = (() => {
   fsBtnRepeat.addEventListener('click', cycleRepeat);
 
   audio.addEventListener('timeupdate', () => {
+    if (audio.currentTime > 1) lastGoodPosition = audio.currentTime;
     syncSeek();
     const now = Date.now();
     if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
   });
+  // Keep lastGoodPosition honest after explicit seeks (including seek-to-0)
+  audio.addEventListener('seeked', () => { lastGoodPosition = audio.currentTime; });
   audio.addEventListener('ended', () => {
     syncPlayIcon(false);
     playNext();
@@ -393,8 +398,8 @@ const Player = (() => {
       if (audio.currentTime === lastStallTime) {
         clearInterval(stallTimer);
         stallTimer = null;
-        const pos = audio.currentTime;
-        audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
+        const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
+        if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
         audio.src = `/api/stream?path=${enc(currentPath)}`;
         audio.play().catch(() => {});
       }
@@ -411,7 +416,7 @@ const Player = (() => {
     if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
     clearInterval(stallTimer);
     stallTimer = null;
-    const pos = isFinite(audio.currentTime) && audio.currentTime > 0 ? audio.currentTime : 0;
+    const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
     if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
     audio.src = `/api/stream?path=${enc(currentPath)}`;
     audio.play().catch(() => {});
@@ -577,19 +582,13 @@ const Player = (() => {
     QueuePanel.refresh();
   }
 
-  // Save position when screen turns off; restore if browser resets to 0 on wake.
-  // Also fire a periodic fetch while hidden so the WiFi radio stays awake and
-  // the router's connection-tracking timer resets — same job that YouTube's
-  // DASH segment requests do naturally. Without this, home routers see the
-  // audio TCP stream go quiet (full buffer → zero window → no data) and evict it.
-  let posBeforeHide = null;
-  let pathBeforeHide = null;
+  // Periodic fetch while hidden keeps the WiFi radio awake and resets the
+  // router's connection-tracking timer (same job YouTube's DASH segment requests
+  // do naturally). Without this, home routers drop the idle audio TCP stream
+  // when the buffer fills and the window goes to zero.
   let wifiKeepAlive = null;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      posBeforeHide = (!audio.paused && isFinite(audio.currentTime) && audio.currentTime > 1)
-        ? audio.currentTime : null;
-      pathBeforeHide = currentPath;
       if (!audio.paused) {
         wifiKeepAlive = setInterval(() => {
           fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) }).catch(() => {});
@@ -601,19 +600,18 @@ const Player = (() => {
     }
   });
   audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); wifiKeepAlive = null; });
+
+  // When the browser resets the audio element to position 0 after a dropped
+  // connection and then auto-resumes (the "started from the beginning" bug),
+  // lastGoodPosition holds the last real position and we jump back to it.
+  // This fires only when currentTime < 1 AND we had been > 1s into the track.
   audio.addEventListener('play', () => {
-    if (posBeforeHide !== null && currentPath === pathBeforeHide && audio.currentTime < 1) {
-      const target = posBeforeHide;
-      posBeforeHide = null;
-      pathBeforeHide = null;
+    if (audio.currentTime < 1 && lastGoodPosition > 1) {
       if (audio.readyState >= 1) {
-        audio.currentTime = target;
+        audio.currentTime = lastGoodPosition;
       } else {
-        audio.addEventListener('loadedmetadata', () => { audio.currentTime = target; }, { once: true });
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = lastGoodPosition; }, { once: true });
       }
-    } else {
-      posBeforeHide = null;
-      pathBeforeHide = null;
     }
   });
 
