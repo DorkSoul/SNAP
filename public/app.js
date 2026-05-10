@@ -404,16 +404,27 @@ const Player = (() => {
     clearInterval(stallTimer);
     lastStallTime = audio.currentTime;
     stallTimer = setInterval(() => {
-      if (audio.paused || !currentPath || isSeeking || document.hidden) { lastStallTime = audio.currentTime; return; }
+      if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
       if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
       if (audio.currentTime === lastStallTime) {
         clearInterval(stallTimer);
         stallTimer = null;
         const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
-        clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition) });
+        clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
         if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
         audio.src = `/api/stream?path=${enc(currentPath)}`;
-        audio.play().catch(() => {});
+        audio.play().catch(() => {
+          // play() may be rejected by browser policy while screen is off —
+          // queue a retry for when the page becomes visible again
+          if (document.hidden) {
+            document.addEventListener('visibilitychange', function retryPlay() {
+              if (!document.hidden) {
+                document.removeEventListener('visibilitychange', retryPlay);
+                audio.play().catch(() => {});
+              }
+            });
+          }
+        });
       }
       lastStallTime = audio.currentTime;
     }, 4000);
