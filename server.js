@@ -187,3 +187,10 @@ const server = app.listen(PORT, () => {
 server.timeout = 0;
 server.requestTimeout = 0;
 server.keepAliveTimeout = 30000;
+// Send TCP keepalive probes on idle connections so home routers don't
+// evict them from their NAT table when the audio buffer fills and the
+// download pauses (the symptom: stream stops after a few minutes on LAN
+// but works fine over VPN where the router never sees the raw TCP).
+server.on('connection', socket => {
+  socket.setKeepAlive(true, 10000); // probe after 10 s idle
+});
