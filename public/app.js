@@ -221,6 +221,7 @@ const Player = (() => {
     document.body.classList.remove('player-hidden');
     currentPath = path;
     lastGoodPosition = 0; // new track - don't restore old position on play events
+    clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null;
     saveState();
     audio.src = `/api/stream?path=${enc(path)}`;
     audio.load();
@@ -380,6 +381,7 @@ const Player = (() => {
 
   audio.addEventListener('timeupdate', () => {
     if (audio.currentTime > 1) lastGoodPosition = audio.currentTime;
+    if (audio.currentTime > 1 && loadTimeoutTimer) { clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null; }
     syncSeek();
     const now = Date.now();
     if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
@@ -400,37 +402,63 @@ const Player = (() => {
   // Reconnect if the stream drops (e.g. phone locked, NAS timeout, Android throttling)
   let stallTimer = null;
   let lastStallTime = -1;
+  let loadTimeoutTimer = null;
+
+  function doReconnect(pos) {
+    clearInterval(stallTimer);
+    clearTimeout(loadTimeoutTimer);
+    stallTimer = null;
+    loadTimeoutTimer = null;
+    clog('reconnect', { pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
+    if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
+    // audio.load() aborts the existing HTTP request and frees the browser's
+    // connection slot before we open a fresh one — without it, rapid reconnects
+    // exhaust all 6 HTTP/1.1 slots and every subsequent request stalls immediately.
+    audio.load();
+    audio.play().catch(() => {
+      // play() rejected while screen is off — retry when screen wakes
+      if (document.hidden) {
+        document.addEventListener('visibilitychange', function retryPlay() {
+          if (!document.hidden) {
+            document.removeEventListener('visibilitychange', retryPlay);
+            audio.play().catch(() => {});
+          }
+        });
+      }
+    });
+    // If audio doesn't advance past 1 s within 20 s, the reconnect itself stalled
+    loadTimeoutTimer = setTimeout(() => {
+      loadTimeoutTimer = null;
+      if (currentPath && !audio.paused && audio.currentTime < 1) {
+        clog('reconnect:timeout', { lgp: Math.round(lastGoodPosition) });
+        doReconnect(lastGoodPosition);
+      }
+    }, 20000);
+  }
+
   function startStallWatch() {
     clearInterval(stallTimer);
     lastStallTime = audio.currentTime;
     stallTimer = setInterval(() => {
       if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
       if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
-      if (audio.currentTime === lastStallTime) {
-        clearInterval(stallTimer);
-        stallTimer = null;
+      // Require currentTime > 0 to avoid triggering during the loading phase after a
+      // fresh reconnect (the element sits at t=0 while buffering the new response).
+      if (audio.currentTime > 0 && audio.currentTime === lastStallTime) {
         const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
         clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
-        if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
-        audio.src = `/api/stream?path=${enc(currentPath)}`;
-        audio.play().catch(() => {
-          // play() may be rejected by browser policy while screen is off —
-          // queue a retry for when the page becomes visible again
-          if (document.hidden) {
-            document.addEventListener('visibilitychange', function retryPlay() {
-              if (!document.hidden) {
-                document.removeEventListener('visibilitychange', retryPlay);
-                audio.play().catch(() => {});
-              }
-            });
-          }
-        });
+        doReconnect(pos);
+      } else {
+        lastStallTime = audio.currentTime;
       }
-      lastStallTime = audio.currentTime;
     }, 4000);
   }
   audio.addEventListener('play',  startStallWatch);
-  audio.addEventListener('pause', () => clearInterval(stallTimer));
+  audio.addEventListener('pause', () => {
+    clearInterval(stallTimer);
+    clearTimeout(loadTimeoutTimer);
+    loadTimeoutTimer = null;
+  });
 
   // Reload from saved position on network errors (connection dropped by router)
   audio.addEventListener('error', () => {
@@ -438,13 +466,7 @@ const Player = (() => {
     const code = audio.error && audio.error.code;
     clog('error:handler', { code, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
     if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
-    clearInterval(stallTimer);
-    stallTimer = null;
-    const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
-    clog('error:reconnect', { pos: Math.round(pos) });
-    if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
-    audio.src = `/api/stream?path=${enc(currentPath)}`;
-    audio.play().catch(() => {});
+    doReconnect(audio.currentTime > 1 ? audio.currentTime : lastGoodPosition);
   });
 
   // Tick MediaSession position so the OS lock screen scrubber stays accurate
