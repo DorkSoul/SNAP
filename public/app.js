@@ -638,22 +638,31 @@ const Player = (() => {
     QueuePanel.refresh();
   }
 
-  // Periodic fetch while hidden keeps the WiFi radio awake and resets the
-  // router's connection-tracking timer (same job YouTube's DASH segment requests
-  // do naturally). Without this, home routers drop the idle audio TCP stream
-  // when the buffer fills and the window goes to zero.
   let wifiKeepAlive = null;
+  let bufferMonitor = null;
   document.addEventListener('visibilitychange', () => {
     clog('visibility', { hidden: document.hidden, paused: audio.paused, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
     if (document.hidden) {
       if (!audio.paused) {
+        // Log fetch success/fail to prove network access works while locked
         wifiKeepAlive = setInterval(() => {
-          fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) }).catch(() => {});
-        }, 20000);
+          fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) })
+            .then(() => clog('keepalive:ok'))
+            .catch(() => clog('keepalive:fail'));
+        }, 15000);
+        // Log Firefox's audio buffer state every 10s to see how much it buffered
+        bufferMonitor = setInterval(() => {
+          if (audio.paused || !currentPath) return;
+          const buf = audio.buffered;
+          const end = buf.length > 0 ? buf.end(buf.length - 1) : audio.currentTime;
+          clog('buffer', { t: Math.round(audio.currentTime), end: Math.round(end), ahead: Math.round(end - audio.currentTime) });
+        }, 10000);
       }
     } else {
       clearInterval(wifiKeepAlive);
+      clearInterval(bufferMonitor);
       wifiKeepAlive = null;
+      bufferMonitor = null;
 
       // When the screen turns on, Firefox resumes buffering the paused stream.
       // Give it 2 seconds to advance on its own before deciding it needs a reconnect.
@@ -671,7 +680,7 @@ const Player = (() => {
       }
     }
   });
-  audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); wifiKeepAlive = null; });
+  audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); clearInterval(bufferMonitor); wifiKeepAlive = null; bufferMonitor = null; });
 
   // When the browser resets the audio element to position 0 after a dropped
   // connection and then auto-resumes (the "started from the beginning" bug),
