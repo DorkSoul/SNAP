@@ -1319,6 +1319,36 @@ new ResizeObserver(entries => {
 Player.restore();
 if (!Player.isActive()) document.body.classList.add('player-hidden');
 
+// Keep the phone's WiFi radio alive via server-sent WebSocket pings.
+// Android puts the WiFi adapter into deep power-save when no inbound traffic
+// arrives; the server pings every 8 s prevents that — same mechanism as
+// WireGuard PersistentKeepalive. Only active while screen is locked + playing.
+(() => {
+  const _audio = document.getElementById('audio');
+  let _sock = null;
+
+  function _open() {
+    if (_sock && _sock.readyState < 2) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _sock = new WebSocket(`${proto}//${location.host}/_ws`);
+    _sock.addEventListener('open',  () => clog('ws:open'));
+    _sock.addEventListener('close', () => {
+      clog('ws:close');
+      _sock = null;
+      if (document.hidden && !_audio.paused) setTimeout(_open, 3000);
+    });
+    _sock.addEventListener('error', () => {});
+  }
+
+  function _close() { if (_sock) { _sock.close(); _sock = null; } }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !_audio.paused) _open(); else _close();
+  });
+  _audio.addEventListener('pause', _close);
+  _audio.addEventListener('play',  () => { if (document.hidden) _open(); });
+})();
+
 // Pull to refresh
 (() => {
   const browserEl  = document.getElementById('browser');
