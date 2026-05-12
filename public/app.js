@@ -445,6 +445,15 @@ const Player = (() => {
       // Require currentTime > 0 to avoid triggering during the loading phase after a
       // fresh reconnect (the element sits at t=0 while buffering the new response).
       if (audio.currentTime > 0 && audio.currentTime === lastStallTime) {
+        if (document.hidden) {
+          // The stream is still TCP-alive but Firefox throttles background media
+          // downloads while the screen is locked. Reconnecting just aborts a good
+          // stream and opens a new one Firefox won't buffer either. Skip it — the
+          // visibilitychange handler will reconnect if the stream doesn't resume
+          // naturally when the screen turns on.
+          clog('stall:hidden-skip', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+          return;
+        }
         const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
         clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
         doReconnect(pos);
@@ -645,6 +654,21 @@ const Player = (() => {
     } else {
       clearInterval(wifiKeepAlive);
       wifiKeepAlive = null;
+
+      // When the screen turns on, Firefox resumes buffering the paused stream.
+      // Give it 2 seconds to advance on its own before deciding it needs a reconnect.
+      if (!audio.paused && currentPath) {
+        const posAtWake = audio.currentTime;
+        setTimeout(() => {
+          if (!audio.paused && audio.currentTime === posAtWake) {
+            // Still frozen — stream must have actually died while locked
+            clog('wake:reconnect', { pos: Math.round(posAtWake), lgp: Math.round(lastGoodPosition) });
+            doReconnect(posAtWake > 1 ? posAtWake : lastGoodPosition);
+          } else {
+            clog('wake:ok', { t: Math.round(audio.currentTime) });
+          }
+        }, 2000);
+      }
     }
   });
   audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); wifiKeepAlive = null; });
