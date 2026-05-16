@@ -45,18 +45,19 @@ app.get('/api/browse', (req, res) => {
     const rel = path.join(req.query.path || '', entry.name);
 
     if (entry.isDirectory()) {
-      dirs.push({ name: entry.name, type: 'dir', path: rel });
+      let mtime = 0;
+      try { mtime = fs.statSync(path.join(full, entry.name)).mtimeMs; } catch {}
+      dirs.push({ name: entry.name, type: 'dir', path: rel, mtime });
     } else if (AUDIO_EXTS.has(ext)) {
-      let size = 0;
+      let size = 0, mtime = 0;
       try {
-        size = fs.statSync(path.join(full, entry.name)).size;
+        const s = fs.statSync(path.join(full, entry.name));
+        size = s.size;
+        mtime = s.mtimeMs;
       } catch {}
-      files.push({ name: entry.name, type: 'file', path: rel, size, ext });
+      files.push({ name: entry.name, type: 'file', path: rel, size, ext, mtime });
     }
   }
-
-  dirs.sort((a, b) => a.name.localeCompare(b.name));
-  files.sort((a, b) => a.name.localeCompare(b.name));
 
   res.json({ path: req.query.path || '', items: [...dirs, ...files] });
 });

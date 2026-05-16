@@ -952,6 +952,8 @@ const FileBrowser = (() => {
   let currentItems = [];
   let playingPath  = '';
   let searchQuery  = '';
+  let sortKey = localStorage.getItem('snap_sort_key') || 'name';
+  let sortDir = localStorage.getItem('snap_sort_dir') || 'asc';
 
   const durationObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
@@ -1056,6 +1058,26 @@ const FileBrowser = (() => {
     });
   }
 
+  // ── Sorting ──
+  function applySort(items) {
+    const dirs  = items.filter(i => i.type === 'dir');
+    const files = items.filter(i => i.type === 'file');
+    const cmp = (a, b) => {
+      if (sortKey === 'name') {
+        const r = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        return sortDir === 'asc' ? r : -r;
+      }
+      if (sortKey === 'date') {
+        const r = (a.mtime || 0) - (b.mtime || 0);
+        return sortDir === 'asc' ? r : -r;
+      }
+      // size — dirs fall back to name
+      const r = ((a.size || 0) - (b.size || 0)) || a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      return sortDir === 'asc' ? r : -r;
+    };
+    return [...dirs.sort(cmp), ...files.sort(cmp)];
+  }
+
   // ── Navigation ──
   function navigate(p, push = true) {
     if (selectMode) exitSelectMode();
@@ -1097,7 +1119,32 @@ const FileBrowser = (() => {
       return;
     }
 
+    items = applySort(items);
+
     const frag = document.createDocumentFragment();
+
+    // Sort bar
+    const sortBar = document.createElement('div');
+    sortBar.className = 'sort-bar';
+    for (const { key, label } of [{ key: 'name', label: 'Name' }, { key: 'date', label: 'Date' }, { key: 'size', label: 'Size' }]) {
+      const btn = document.createElement('button');
+      const isActive = sortKey === key;
+      btn.className = 'sort-btn' + (isActive ? ' active' : '');
+      btn.textContent = label + (isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+      btn.addEventListener('click', () => {
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = key === 'date' || key === 'size' ? 'desc' : 'asc';
+        }
+        localStorage.setItem('snap_sort_key', sortKey);
+        localStorage.setItem('snap_sort_dir', sortDir);
+        render();
+      });
+      sortBar.appendChild(btn);
+    }
+    frag.appendChild(sortBar);
 
     // Play all / folder actions header (only when there are audio files)
     const audioFiles = items.filter(i => i.type === 'file');
