@@ -1056,6 +1056,7 @@ input[type=range]::-moz-range-thumb {
 .admin-btn.danger { color:#e55; }
 .admin-btn.danger:hover { border-color:#e55; }
 .admin-form { display:flex; flex-direction:column; gap:10px; padding:12px; background:var(--surface2); border-radius:8px; }
+.admin-form[hidden] { display:none; }
 .admin-form label { font-size:12px; color:var(--text-muted); display:flex; flex-direction:column; gap:4px; }
 .admin-form input, .admin-form select { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
 .admin-form input:focus, .admin-form select:focus { border-color:var(--accent); }
