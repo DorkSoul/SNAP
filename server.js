@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
 
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.ogg', '.m4a', '.mp4', '.aac', '.wav', '.opus', '.wma', '.m4b', '.mp4a']);
+const VIDEO_EXTS = new Set(['.mkv', '.webm', '.avi', '.mov', '.m4v', '.mpg', '.mpeg', '.wmv']);
 const ARTWORK_NAMES = ['folder.jpg', 'folder.jpeg', 'folder.png', 'cover.jpg', 'cover.jpeg', 'cover.png', 'album.jpg', 'album.png'];
 
 function safePath(relPath) {
@@ -48,7 +49,7 @@ app.get('/api/browse', (req, res) => {
       let mtime = 0;
       try { mtime = fs.statSync(path.join(full, entry.name)).mtimeMs; } catch {}
       dirs.push({ name: entry.name, type: 'dir', path: rel, mtime });
-    } else if (AUDIO_EXTS.has(ext)) {
+    } else if (AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext)) {
       let size = 0, mtime = 0;
       try {
         const s = fs.statSync(path.join(full, entry.name));
