@@ -977,8 +977,12 @@ input[type=range]::-moz-range-thumb {
   transition: opacity 0.25s;
 }
 
+.fullscreen-player.video-mode .fs-controls,
 .fullscreen-player.video-mode .fs-extra {
   justify-content: center;
+}
+
+.fullscreen-player.video-mode .fs-extra {
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
 
