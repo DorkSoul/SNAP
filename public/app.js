@@ -1035,7 +1035,6 @@ const FullscreenPlayer = (() => {
       if (zone === 'left')       Player.skip(-30);
       else if (zone === 'right') Player.skip(30);
       else                       Player.playPause();
-      showControls();
     } else {
       tapTimer = setTimeout(() => {
         tapTimer = null;
