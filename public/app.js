@@ -967,6 +967,11 @@ const FullscreenPlayer = (() => {
     }
   }
 
+  function hideControls() {
+    clearTimeout(controlsHideTimer);
+    el.classList.add('controls-hidden');
+  }
+
   function open() {
     history.pushState({ type: 'fullscreen' }, '');
     el.hidden = false;
@@ -1015,23 +1020,27 @@ const FullscreenPlayer = (() => {
   });
 
   // ── Video tap zone — only fires on .fs-art (the video background layer) ──
-  // Buttons are siblings of .fs-art in the DOM so their events never bubble here.
-  // Single tap: show controls (or pause/play if controls already visible)
-  // Double tap: skip ±30 s (left / right half)
+  // Tap zones split into thirds:
+  //   Single tap (any zone): toggle show/hide controls
+  //   Double tap left third:   seek -30 s
+  //   Double tap middle third: play/pause
+  //   Double tap right third:  seek +30 s
   function handleTap(x) {
+    const third = el.clientWidth / 3;
+    const zone = x < third ? 'left' : x < third * 2 ? 'mid' : 'right';
+
     if (tapTimer) {
       clearTimeout(tapTimer);
       tapTimer = null;
-      Player.skip(x < el.clientWidth / 2 ? -30 : 30);
+      if (zone === 'left')       Player.skip(-30);
+      else if (zone === 'right') Player.skip(30);
+      else                       Player.playPause();
       showControls();
     } else {
       tapTimer = setTimeout(() => {
         tapTimer = null;
-        if (el.classList.contains('controls-hidden')) {
-          showControls();
-        } else {
-          Player.playPause();
-        }
+        if (el.classList.contains('controls-hidden')) showControls();
+        else hideControls();
       }, 220);
     }
   }
