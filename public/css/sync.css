@@ -1,0 +1,18 @@
+/* ── Fullscreen takeover row ── */
+.fs-takeover { display:flex; justify-content:center; padding:8px 0 4px; }
+.fs-takeover[hidden] { display:none; }
+.fs-takeover-btn { background:var(--accent); color:#000; border:none; border-radius:8px; padding:8px 28px; cursor:pointer; font-size:13px; font-weight:600; }
+
+/* ── Sync banners ── */
+.sync-banner { position:fixed; left:0; right:0; bottom:var(--player-h); background:var(--surface); border-top:1px solid var(--accent); padding:10px 16px; display:flex; align-items:center; gap:10px; z-index:150; font-size:13px; }
+.sync-banner[hidden] { display:none; }
+.sync-banner-text { flex:1; }
+.sync-banner-btn { background:var(--accent); color:#000; border:none; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12px; font-weight:600; }
+.sync-banner-dismiss { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; padding:2px 6px; }
+
+/* ── Mobile: hide playlists button in topbar ── */
+@media (max-width: 600px) {
+  #btn-playlists { display: none; }
+  .sync-banner { bottom: var(--player-h); }
+  #playlists-panel { width:100%; top:20%; border-radius:16px 16px 0 0; border:none; border-top:1px solid var(--border); }
+}

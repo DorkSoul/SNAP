@@ -1,0 +1,23 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #111;
+  --surface: #1a1a1a;
+  --surface2: #242424;
+  --border: #2e2e2e;
+  --text: #e8e8e8;
+  --text-muted: #888;
+  --accent: #1db954;
+  --player-h: 72px;
+  --topbar-h: 52px;
+  --breadcrumb-h: 36px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}

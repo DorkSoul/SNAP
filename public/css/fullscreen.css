@@ -1,0 +1,230 @@
+/* ── Fullscreen player ── */
+.fullscreen-player {
+  position: fixed;
+  inset: 0;
+  background: #0d0d0d;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
+  gap: 20px;
+}
+.fullscreen-player[hidden] { display: none; }
+
+.fs-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+}
+.fs-close:hover { color: var(--text); }
+
+.fs-art {
+  width: min(280px, 70vw);
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 72px;
+  flex-shrink: 0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.fs-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.fs-art img:not([src]),
+.fs-art img[src=""] { display: none; }
+
+/* Hide fallback when artwork is loaded; show it only when img src is empty */
+.fs-art-fallback { display: none; }
+.fs-art img:not([src]) ~ .fs-art-fallback,
+.fs-art img[src=""] ~ .fs-art-fallback { display: block; }
+
+.fs-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+.fs-title {
+  font-size: 18px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+.fs-artist {
+  font-size: 14px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.fs-seek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 400px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.fs-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fs-controls button {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 22px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1;
+  transition: color 0.12s;
+  font-variant-emoji: text;
+  -webkit-tap-highlight-color: transparent;
+}
+.fs-controls button:focus { outline: none; color: var(--text); }
+@media (hover: hover) {
+  .fs-controls button:hover { color: var(--accent); }
+}
+.fs-controls .play-btn { font-size: 34px !important; padding: 10px 18px; }
+
+.fs-skip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+.fs-extra {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fs-extra button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 22px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: color 0.12s;
+  font-variant-emoji: text;
+  -webkit-tap-highlight-color: transparent;
+}
+.fs-extra button:focus { outline: none; color: var(--text-muted); }
+@media (hover: hover) {
+  .fs-extra button:hover { color: var(--text); }
+}
+.fs-extra button.active { color: var(--accent); }
+
+/* ── Video mode fullscreen ── */
+.fullscreen-player.video-mode {
+  padding: 0;
+  gap: 0;
+  justify-content: flex-end;
+  background: #000;
+}
+
+/* Video fills full background */
+.fullscreen-player.video-mode .fs-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  aspect-ratio: unset;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+  z-index: 0;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* Controls overlay at bottom in video mode */
+.fullscreen-player.video-mode .fs-info,
+.fullscreen-player.video-mode .fs-seek,
+.fullscreen-player.video-mode .fs-controls,
+.fullscreen-player.video-mode .fs-extra {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 20px;
+  transition: opacity 0.25s;
+}
+
+.fullscreen-player.video-mode .fs-controls,
+.fullscreen-player.video-mode .fs-extra {
+  justify-content: center;
+}
+
+.fullscreen-player.video-mode .fs-extra {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.fullscreen-player.video-mode .fs-close {
+  z-index: 2;
+  transition: opacity 0.25s;
+}
+
+/* Gradient scrim behind controls */
+.fullscreen-player.video-mode::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 55%;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+/* Auto-hide controls in video mode */
+.fullscreen-player.video-mode.controls-hidden .fs-close,
+.fullscreen-player.video-mode.controls-hidden .fs-info,
+.fullscreen-player.video-mode.controls-hidden .fs-seek,
+.fullscreen-player.video-mode.controls-hidden .fs-controls,
+.fullscreen-player.video-mode.controls-hidden .fs-extra {
+  opacity: 0;
+  pointer-events: none;
+}
+.fullscreen-player.video-mode.controls-hidden::after {
+  opacity: 0;
+}
+
+/* Mini player art area in video mode */
+.player-art-btn.video-mode .art-fallback { display: flex !important; }
+.player-art-btn.video-mode img { display: none; }
