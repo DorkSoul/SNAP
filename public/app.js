@@ -951,7 +951,8 @@ const QueuePanel = (() => {
 // ── Fullscreen Player ─────────────────────────────────────────────────────────
 
 const FullscreenPlayer = (() => {
-  const el = document.getElementById('fullscreen-player');
+  const el      = document.getElementById('fullscreen-player');
+  const fsArtEl = document.querySelector('.fs-art');
 
   let controlsHideTimer = null;
   let tapTimer = null;
@@ -997,12 +998,28 @@ const FullscreenPlayer = (() => {
     } catch (_) {}
   });
 
-  // Double-tap skip + single-tap toggle controls — video mode only
-  // Uses touchend for responsiveness; falls back to click on desktop
+  // Fullscreen button — toggles browser native fullscreen
+  const fsFullscreenBtn  = document.getElementById('fs-btn-fullscreen');
+  const fsFullscreenIcon = document.getElementById('fs-fullscreen-icon');
+  const ICON_EXPAND   = `<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>`;
+  const ICON_COLLAPSE = `<path d="M8 3v5H3"/><path d="M21 8h-5V3"/><path d="M3 16h5v5"/><path d="M16 21v-5h5"/>`;
+  fsFullscreenBtn.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    fsFullscreenIcon.innerHTML = document.fullscreenElement ? ICON_COLLAPSE : ICON_EXPAND;
+  });
+
+  // ── Video tap zone — only fires on .fs-art (the video background layer) ──
+  // Buttons are siblings of .fs-art in the DOM so their events never bubble here.
+  // Single tap: show controls (or pause/play if controls already visible)
+  // Double tap: skip ±30 s (left / right half)
   function handleTap(x) {
-    if (!Player.isCurrentVideo()) return;
     if (tapTimer) {
-      // Double tap
       clearTimeout(tapTimer);
       tapTimer = null;
       Player.skip(x < el.clientWidth / 2 ? -30 : 30);
@@ -1010,7 +1027,6 @@ const FullscreenPlayer = (() => {
     } else {
       tapTimer = setTimeout(() => {
         tapTimer = null;
-        // Single tap
         if (el.classList.contains('controls-hidden')) {
           showControls();
         } else {
@@ -1020,22 +1036,20 @@ const FullscreenPlayer = (() => {
     }
   }
 
-  // Touch: fast and avoids 300ms click delay
-  el.addEventListener('touchend', e => {
+  // touchend on .fs-art — fast, no 300 ms delay, no button interference
+  fsArtEl.addEventListener('touchend', e => {
     if (!Player.isCurrentVideo()) return;
-    if (e.target.closest('button, input, .fs-close')) return;
     e.preventDefault();
     handleTap(e.changedTouches[0].clientX);
   }, { passive: false });
 
-  // Mouse (desktop fallback)
-  el.addEventListener('click', e => {
+  // click on .fs-art — desktop fallback
+  fsArtEl.addEventListener('click', e => {
     if (!Player.isCurrentVideo()) return;
-    if (e.target.closest('button, input, .fs-close')) return;
     handleTap(e.clientX);
   });
 
-  // Re-show controls on seek bar interaction
+  // Re-show controls when the seek bar is touched
   el.addEventListener('input', () => { if (Player.isCurrentVideo()) showControls(); });
 
   return { open, close, isOpen };
