@@ -1,5 +1,13 @@
 'use strict';
 
+// ── Remote logging (shows up in docker logs) ──────────────────────────────────
+function clog(event, data) {
+  try {
+    const body = JSON.stringify({ event, data });
+    navigator.sendBeacon('/api/clientlog', new Blob([body], { type: 'application/json' }));
+  } catch (_) {}
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function formatTime(sec) {
@@ -17,6 +25,27 @@ function formatSize(bytes) {
 }
 
 function enc(p) { return encodeURIComponent(p); }
+
+// ── Icon SVGs ─────────────────────────────────────────────────────────────────
+const S = 'stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"';
+const icons = {
+  play:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M5 3.5v17L20 12z"/></svg>`,
+  pause:     `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><rect x="5" y="3" width="5" height="18" rx="2"/><rect x="14" y="3" width="5" height="18" rx="2"/></svg>`,
+  prev:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M6 5h2.5v14H6zm2.5 7L19 5v14z"/></svg>`,
+  next:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M15.5 5H18v14h-2.5zM5 5l10 7-10 7z"/></svg>`,
+  shuffle:   `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`,
+  repeat:    `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+  repeatOne: `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="14.5" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui,sans-serif">1</text></svg>`,
+  close:     `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="2" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  note:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+  folder:    `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+  check:     `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="2.5" ${S} aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`,
+  drag:      `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="9" cy="7" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>`,
+  menu:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>`,
+  grid:      `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`,
+  volume:    `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke-width="1.75" ${S} aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`,
+  playSmall: `<svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" aria-hidden="true"><path d="M5 3.5v17L20 12z"/></svg>`,
+};
 
 // ── Media Session (lock screen controls + OS background audio permission) ─────
 
@@ -87,6 +116,7 @@ const Player = (() => {
   const audio = document.getElementById('audio');
 
   // Player bar
+  const playerBar     = document.getElementById('player-bar');
   const artImg        = document.getElementById('player-art-img');
   const btnPlay       = document.getElementById('btn-play');
   const btnPrev       = document.getElementById('btn-prev');
@@ -122,6 +152,7 @@ const Player = (() => {
   // ── Persistence ──
   const STORAGE_KEY = 'snap_state';
   let lastSaveAt = 0;
+  let lastGoodPosition = 0; // last currentTime > 1s, survives connection resets
 
   function saveState() {
     try {
@@ -142,9 +173,8 @@ const Player = (() => {
 
   // ── UI sync ──
   function syncPlayIcon(playing) {
-    const icon = playing ? '\u2759\u2759' : '\u25B6'; // ❙❙ or ▶ — no emoji rendering
-    btnPlay.textContent   = icon;
-    fsBtnPlay.textContent = icon;
+    btnPlay.innerHTML   = playing ? icons.pause : icons.play;
+    fsBtnPlay.innerHTML = playing ? icons.pause : icons.play;
   }
 
   function syncShuffleIcon() {
@@ -156,10 +186,9 @@ const Player = (() => {
 
   function syncRepeatIcon() {
     const active = repeatMode !== 'off';
-    const icon   = repeatMode === 'one' ? '1\u21BB' : '\u21BB';
     [btnRepeat, fsBtnRepeat].forEach(b => {
       b.classList.toggle('active', active);
-      b.textContent = icon;
+      b.innerHTML = repeatMode === 'one' ? icons.repeatOne : icons.repeat;
       b.blur();
     });
   }
@@ -188,7 +217,11 @@ const Player = (() => {
 
   // ── Load & play ──
   async function loadTrack(path, play = true) {
+    playerBar.hidden = false;
+    document.body.classList.remove('player-hidden');
     currentPath = path;
+    lastGoodPosition = 0; // new track - don't restore old position on play events
+    clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null;
     saveState();
     audio.src = `/api/stream?path=${enc(path)}`;
     audio.load();
@@ -347,17 +380,103 @@ const Player = (() => {
   fsBtnRepeat.addEventListener('click', cycleRepeat);
 
   audio.addEventListener('timeupdate', () => {
+    if (audio.currentTime > 1) lastGoodPosition = audio.currentTime;
+    if (audio.currentTime > 1 && loadTimeoutTimer) { clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null; }
     syncSeek();
     const now = Date.now();
     if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
   });
+  // Keep lastGoodPosition honest after explicit seeks (including seek-to-0)
+  audio.addEventListener('seeked', () => { lastGoodPosition = audio.currentTime; });
   audio.addEventListener('ended', () => {
     syncPlayIcon(false);
     playNext();
     if (audio.paused) WakeLock.release();
   });
-  audio.addEventListener('pause', () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); });
-  audio.addEventListener('play',  () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true); });
+  audio.addEventListener('pause',   () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  audio.addEventListener('play',    () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  audio.addEventListener('stalled', () => clog('audio:stalled', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
+  audio.addEventListener('waiting', () => clog('audio:waiting', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
+  audio.addEventListener('error',   () => clog('audio:error',   { code: audio.error?.code, msg: audio.error?.message, t: Math.round(audio.currentTime) }));
+
+  // Reconnect if the stream drops (e.g. phone locked, NAS timeout, Android throttling)
+  let stallTimer = null;
+  let lastStallTime = -1;
+  let loadTimeoutTimer = null;
+
+  function doReconnect(pos) {
+    clearInterval(stallTimer);
+    clearTimeout(loadTimeoutTimer);
+    stallTimer = null;
+    loadTimeoutTimer = null;
+    clog('reconnect', { pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
+    if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
+    // audio.load() aborts the existing HTTP request and frees the browser's
+    // connection slot before we open a fresh one — without it, rapid reconnects
+    // exhaust all 6 HTTP/1.1 slots and every subsequent request stalls immediately.
+    audio.load();
+    audio.play().catch(() => {
+      // play() rejected while screen is off — retry when screen wakes
+      if (document.hidden) {
+        document.addEventListener('visibilitychange', function retryPlay() {
+          if (!document.hidden) {
+            document.removeEventListener('visibilitychange', retryPlay);
+            audio.play().catch(() => {});
+          }
+        });
+      }
+    });
+    // If audio doesn't advance past 1 s within 20 s, the reconnect itself stalled
+    loadTimeoutTimer = setTimeout(() => {
+      loadTimeoutTimer = null;
+      if (currentPath && !audio.paused && audio.currentTime < 1) {
+        clog('reconnect:timeout', { lgp: Math.round(lastGoodPosition) });
+        doReconnect(lastGoodPosition);
+      }
+    }, 20000);
+  }
+
+  function startStallWatch() {
+    clearInterval(stallTimer);
+    lastStallTime = audio.currentTime;
+    stallTimer = setInterval(() => {
+      if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
+      if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
+      // Require currentTime > 0 to avoid triggering during the loading phase after a
+      // fresh reconnect (the element sits at t=0 while buffering the new response).
+      if (audio.currentTime > 0 && audio.currentTime === lastStallTime) {
+        if (document.hidden) {
+          // The stream is still TCP-alive but Firefox throttles background media
+          // downloads while the screen is locked. Reconnecting just aborts a good
+          // stream and opens a new one Firefox won't buffer either. Skip it — the
+          // visibilitychange handler will reconnect if the stream doesn't resume
+          // naturally when the screen turns on.
+          clog('stall:hidden-skip', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+          return;
+        }
+        const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
+        clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
+        doReconnect(pos);
+      } else {
+        lastStallTime = audio.currentTime;
+      }
+    }, 4000);
+  }
+  audio.addEventListener('play',  startStallWatch);
+  audio.addEventListener('pause', () => {
+    clearInterval(stallTimer);
+    clearTimeout(loadTimeoutTimer);
+    loadTimeoutTimer = null;
+  });
+
+  // Reload from saved position on network errors (connection dropped by router)
+  audio.addEventListener('error', () => {
+    if (!currentPath) return;
+    const code = audio.error && audio.error.code;
+    clog('error:handler', { code, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+    if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
+    doReconnect(audio.currentTime > 1 ? audio.currentTime : lastGoodPosition);
+  });
 
   // Tick MediaSession position so the OS lock screen scrubber stays accurate
   setInterval(() => {
@@ -397,6 +516,15 @@ const Player = (() => {
   document.getElementById('fs-btn-queue').addEventListener('click', () => {
     FullscreenPlayer.close();
     QueuePanel.open();
+  });
+
+  // Skip ±30s
+  document.getElementById('fs-btn-skip-back').addEventListener('click', () => {
+    audio.currentTime = Math.max(0, audio.currentTime - 30);
+  });
+  document.getElementById('fs-btn-skip-fwd').addEventListener('click', () => {
+    if (isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, audio.currentTime + 30);
+    else audio.currentTime += 30;
   });
 
   // ── Restore persisted state on page load ──
@@ -452,13 +580,127 @@ const Player = (() => {
 
       FileBrowser.setPlaying(currentPath);
       QueuePanel.refresh();
+      playerBar.hidden = false;
+      document.body.classList.remove('player-hidden');
     } catch (_) {}
   }
+
+  function clear() {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    queue = [];
+    originalQueue = null;
+    queueIndex = -1;
+    currentPath = null;
+
+    syncPlayIcon(false);
+    artImg.src = '';
+    fsArtImg.src = '';
+    [seekBar, fsSeekBar].forEach(s => { s.value = 0; });
+    [timeCurrent, fsTimeCurrent, timeTotal, fsTimeTotal].forEach(t => { t.textContent = '0:00'; });
+    fsTitle.textContent = '';
+    fsArtist.textContent = '';
+
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+
+    FileBrowser.setPlaying(null);
+    QueuePanel.refresh();
+    WakeLock.release();
+    FullscreenPlayer.close();
+
+    playerBar.hidden = true;
+    document.body.classList.add('player-hidden');
+  }
+
+  document.getElementById('btn-clear').addEventListener('click', clear);
+
+  function removeFromQueue(idx) {
+    if (idx === queueIndex) return;
+    const path = queue[idx];
+    queue.splice(idx, 1);
+    if (originalQueue) {
+      const oi = originalQueue.indexOf(path);
+      if (oi !== -1) originalQueue.splice(oi, 1);
+    }
+    if (idx < queueIndex) queueIndex--;
+    saveState();
+    QueuePanel.refresh();
+  }
+
+  function reorderQueue(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx === queueIndex) return;
+    const [item] = queue.splice(fromIdx, 1);
+    queue.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, item);
+    queueIndex = currentPath ? queue.indexOf(currentPath) : queueIndex;
+    originalQueue = queue.slice();
+    saveState();
+    QueuePanel.refresh();
+  }
+
+  let wifiKeepAlive = null;
+  let bufferMonitor = null;
+  document.addEventListener('visibilitychange', () => {
+    clog('visibility', { hidden: document.hidden, paused: audio.paused, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+    if (document.hidden) {
+      if (!audio.paused) {
+        // Log fetch success/fail to prove network access works while locked
+        wifiKeepAlive = setInterval(() => {
+          fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) })
+            .then(() => clog('keepalive:ok'))
+            .catch(() => clog('keepalive:fail'));
+        }, 15000);
+        // Log Firefox's audio buffer state every 10s to see how much it buffered
+        bufferMonitor = setInterval(() => {
+          if (audio.paused || !currentPath) return;
+          const buf = audio.buffered;
+          const end = buf.length > 0 ? buf.end(buf.length - 1) : audio.currentTime;
+          clog('buffer', { t: Math.round(audio.currentTime), end: Math.round(end), ahead: Math.round(end - audio.currentTime) });
+        }, 10000);
+      }
+    } else {
+      clearInterval(wifiKeepAlive);
+      clearInterval(bufferMonitor);
+      wifiKeepAlive = null;
+      bufferMonitor = null;
+
+      // When the screen turns on, Firefox resumes buffering the paused stream.
+      // Give it 2 seconds to advance on its own before deciding it needs a reconnect.
+      if (!audio.paused && currentPath) {
+        const posAtWake = audio.currentTime;
+        setTimeout(() => {
+          if (!audio.paused && audio.currentTime === posAtWake) {
+            // Still frozen — stream must have actually died while locked
+            clog('wake:reconnect', { pos: Math.round(posAtWake), lgp: Math.round(lastGoodPosition) });
+            doReconnect(posAtWake > 1 ? posAtWake : lastGoodPosition);
+          } else {
+            clog('wake:ok', { t: Math.round(audio.currentTime) });
+          }
+        }, 2000);
+      }
+    }
+  });
+  audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); clearInterval(bufferMonitor); wifiKeepAlive = null; bufferMonitor = null; });
+
+  // When the browser resets the audio element to position 0 after a dropped
+  // connection and then auto-resumes (the "started from the beginning" bug),
+  // lastGoodPosition holds the last real position and we jump back to it.
+  // This fires only when currentTime < 1 AND we had been > 1s into the track.
+  audio.addEventListener('play', () => {
+    if (audio.currentTime < 1 && lastGoodPosition > 1) {
+      clog('play:restore', { lgp: Math.round(lastGoodPosition) });
+      if (audio.readyState >= 1) {
+        audio.currentTime = lastGoodPosition;
+      } else {
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = lastGoodPosition; }, { once: true });
+      }
+    }
+  });
 
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
-    playPause, playNext, playPrev, restore
+    playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue
   };
 })();
 
@@ -518,9 +760,75 @@ const QueueModal = (() => {
 // ── Queue Panel ───────────────────────────────────────────────────────────────
 
 const QueuePanel = (() => {
-  const panel     = document.getElementById('queue-panel');
-  const listEl    = document.getElementById('queue-list');
-  const closeBtn  = document.getElementById('queue-close');
+  const panel    = document.getElementById('queue-panel');
+  const listEl   = document.getElementById('queue-list');
+  const closeBtn = document.getElementById('queue-close');
+
+  let dragFromIdx     = null;
+  let insertBeforeIdx = null;
+
+  function clearDropIndicators() {
+    listEl.querySelectorAll('.drop-before, .drop-after').forEach(el => {
+      el.classList.remove('drop-before', 'drop-after');
+    });
+  }
+
+  function setupDragHandle(handle, fromIdx) {
+    handle.addEventListener('pointerdown', e => {
+      if (e.button > 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragFromIdx     = fromIdx;
+      insertBeforeIdx = null;
+      handle.setPointerCapture(e.pointerId);
+      handle.closest('.queue-item').classList.add('queue-dragging');
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onCancel);
+    });
+    handle.addEventListener('click', e => e.stopPropagation());
+
+    function onMove(e) {
+      const qIdx = Player.getQueueIndex();
+      const minInsert = qIdx + 1;
+      clearDropIndicators();
+      const items = Array.from(listEl.querySelectorAll('.queue-item'));
+      let placed = false;
+      for (let i = 0; i < items.length; i++) {
+        const rect = items[i].getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) {
+          const clamped = Math.max(i, minInsert);
+          if (items[clamped]) items[clamped].classList.add('drop-before');
+          insertBeforeIdx = clamped;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        if (items.length) items[items.length - 1].classList.add('drop-after');
+        insertBeforeIdx = items.length;
+      }
+    }
+
+    function onUp() {
+      if (dragFromIdx !== null && insertBeforeIdx !== null)
+        Player.reorderQueue(dragFromIdx, insertBeforeIdx);
+      cleanup();
+    }
+
+    function onCancel() { cleanup(); }
+
+    function cleanup() {
+      const el = listEl.querySelector('.queue-dragging');
+      if (el) el.classList.remove('queue-dragging');
+      clearDropIndicators();
+      dragFromIdx     = null;
+      insertBeforeIdx = null;
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onCancel);
+    }
+  }
 
   function open()  { panel.hidden = false; refresh(); }
   function close() { panel.hidden = true; }
@@ -537,16 +845,24 @@ const QueuePanel = (() => {
     }
 
     q.forEach((path, i) => {
+      const isCurrent = i === idx;
       const item = document.createElement('div');
-      item.className = 'queue-item' + (i === idx ? ' current' : '');
+      item.className = 'queue-item' + (isCurrent ? ' current' : '');
+
+      const canDrag = i > idx;
+      const handle = document.createElement('span');
+      handle.className = 'queue-drag-handle' + (!canDrag ? ' queue-drag-handle--disabled' : '');
+      handle.innerHTML = icons.drag;
+      if (canDrag) setupDragHandle(handle, i);
 
       const num = document.createElement('span');
       num.className = 'queue-item-num';
-      if (i !== idx) num.textContent = i + 1;
+      if (isCurrent) num.innerHTML = icons.playSmall;
+      else num.textContent = i + 1;
 
       const thumb = document.createElement('div');
       thumb.className = 'queue-item-thumb';
-      thumb.textContent = '\uD83C\uDFB5';
+      thumb.innerHTML = icons.note;
       const tImg = document.createElement('img');
       tImg.src = `/api/artwork?path=${enc(path)}`;
       tImg.onload = () => { thumb.textContent = ''; thumb.appendChild(tImg); };
@@ -556,18 +872,26 @@ const QueuePanel = (() => {
       name.className = 'queue-item-name';
       name.textContent = path.split('/').pop().replace(/\.[^.]+$/, '');
 
-      item.append(num, thumb, name);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'queue-item-remove';
+      removeBtn.innerHTML = icons.close;
+      removeBtn.title = 'Remove from queue';
+      if (isCurrent) {
+        removeBtn.disabled = true;
+      } else {
+        removeBtn.addEventListener('click', e => { e.stopPropagation(); Player.removeFromQueue(i); });
+      }
+
+      item.append(handle, num, thumb, name, removeBtn);
       item.addEventListener('click', () => { Player.jumpTo(i); close(); });
       listEl.appendChild(item);
     });
 
-    // Scroll current into view
     const cur = listEl.querySelector('.current');
     if (cur) cur.scrollIntoView({ block: 'nearest' });
   }
 
   closeBtn.addEventListener('click', close);
-
   return { open, close, refresh };
 })();
 
@@ -576,12 +900,13 @@ const QueuePanel = (() => {
 const FullscreenPlayer = (() => {
   const el = document.getElementById('fullscreen-player');
 
-  function open()  { el.hidden = false; }
+  function open()  { history.pushState({ type: 'fullscreen' }, ''); el.hidden = false; }
   function close() { el.hidden = true; }
+  function isOpen() { return !el.hidden; }
 
-  document.getElementById('fs-close').addEventListener('click', close);
+  document.getElementById('fs-close').addEventListener('click', () => history.back());
 
-  return { open, close };
+  return { open, close, isOpen };
 })();
 
 // ── View Toggle ───────────────────────────────────────────────────────────────
@@ -627,6 +952,29 @@ const FileBrowser = (() => {
   let currentItems = [];
   let playingPath  = '';
   let searchQuery  = '';
+  let sortKey = localStorage.getItem('snap_sort_key') || 'name';
+  let sortDir = localStorage.getItem('snap_sort_dir') || 'asc';
+
+  const durationObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const el = entry.target;
+      durationObserver.unobserve(el);
+      fetchDuration(el.dataset.durPath).then(d => { if (d) el.textContent = formatTime(d); });
+    }
+  }, { rootMargin: '200px' });
+
+  const artworkObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const thumb = entry.target;
+      artworkObserver.unobserve(thumb);
+      const img = document.createElement('img');
+      img.src = `/api/artwork?path=${enc(thumb.dataset.artPath)}`;
+      img.onload = () => { thumb.textContent = ''; thumb.appendChild(img); };
+      img.onerror = () => {};
+    }
+  }, { rootMargin: '400px' });
 
   // Multi-select state
   let selectMode    = false;
@@ -710,9 +1058,30 @@ const FileBrowser = (() => {
     });
   }
 
+  // ── Sorting ──
+  function applySort(items) {
+    const dirs  = items.filter(i => i.type === 'dir');
+    const files = items.filter(i => i.type === 'file');
+    const cmp = (a, b) => {
+      if (sortKey === 'name') {
+        const r = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        return sortDir === 'asc' ? r : -r;
+      }
+      if (sortKey === 'date') {
+        const r = (a.mtime || 0) - (b.mtime || 0);
+        return sortDir === 'asc' ? r : -r;
+      }
+      // size — dirs fall back to name
+      const r = ((a.size || 0) - (b.size || 0)) || a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      return sortDir === 'asc' ? r : -r;
+    };
+    return [...dirs.sort(cmp), ...files.sort(cmp)];
+  }
+
   // ── Navigation ──
-  function navigate(p) {
+  function navigate(p, push = true) {
     if (selectMode) exitSelectMode();
+    if (push) history.pushState({ type: 'browse', path: p }, '');
     currentPath  = p;
     searchEl.value = '';
     searchQuery  = '';
@@ -750,7 +1119,32 @@ const FileBrowser = (() => {
       return;
     }
 
+    items = applySort(items);
+
     const frag = document.createDocumentFragment();
+
+    // Sort bar
+    const sortBar = document.createElement('div');
+    sortBar.className = 'sort-bar';
+    for (const { key, label } of [{ key: 'name', label: 'Name' }, { key: 'date', label: 'Date' }, { key: 'size', label: 'Size' }]) {
+      const btn = document.createElement('button');
+      const isActive = sortKey === key;
+      btn.className = 'sort-btn' + (isActive ? ' active' : '');
+      btn.textContent = label + (isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+      btn.addEventListener('click', () => {
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = key === 'date' || key === 'size' ? 'desc' : 'asc';
+        }
+        localStorage.setItem('snap_sort_key', sortKey);
+        localStorage.setItem('snap_sort_dir', sortDir);
+        render();
+      });
+      sortBar.appendChild(btn);
+    }
+    frag.appendChild(sortBar);
 
     // Play all / folder actions header (only when there are audio files)
     const audioFiles = items.filter(i => i.type === 'file');
@@ -764,7 +1158,7 @@ const FileBrowser = (() => {
 
       const playAll = document.createElement('button');
       playAll.className = 'play-all-btn';
-      playAll.textContent = '\u25B6 Play all';
+      playAll.innerHTML = icons.play + ' Play all';
       playAll.addEventListener('click', () => {
         const paths = audioFiles.map(f => f.path);
         if (Player.isActive()) {
@@ -825,12 +1219,12 @@ const FileBrowser = (() => {
     if (selectMode && item.type === 'file') {
       const chk = document.createElement('span');
       chk.className = 'select-check';
-      chk.textContent = selectedPaths.has(item.path) ? '\u2713' : '\u25CB';
+      chk.innerHTML = selectedPaths.has(item.path) ? icons.check : '';
       el.appendChild(chk);
     } else {
       const icon = document.createElement('span');
       icon.className = 'list-icon';
-      icon.textContent = item.type === 'dir' ? '\uD83D\uDCC1' : '\uD83C\uDFB5';
+      icon.innerHTML = item.type === 'dir' ? icons.folder : icons.note;
       el.appendChild(icon);
     }
 
@@ -844,7 +1238,8 @@ const FileBrowser = (() => {
     if (item.type === 'file') {
       const dur = document.createElement('span');
       dur.textContent = '—';
-      fetchDuration(item.path).then(d => { if (d) dur.textContent = formatTime(d); });
+      dur.dataset.durPath = item.path;
+      durationObserver.observe(dur);
       const sz = document.createElement('span');
       sz.textContent = item.size ? formatSize(item.size) : '';
       meta.append(dur, sz);
@@ -877,19 +1272,16 @@ const FileBrowser = (() => {
 
     const thumb = document.createElement('div');
     thumb.className = 'grid-thumb';
-    thumb.textContent = item.type === 'dir' ? '\uD83D\uDCC1' : '\uD83C\uDFB5';
+    thumb.innerHTML = item.type === 'dir' ? icons.folder : icons.note;
 
     if (selectMode && item.type === 'file') {
       const overlay = document.createElement('div');
       overlay.className = 'grid-select-overlay';
-      overlay.textContent = selectedPaths.has(item.path) ? '\u2713' : '';
+      overlay.innerHTML = selectedPaths.has(item.path) ? icons.check : '';
       thumb.appendChild(overlay);
-    } else {
-      const img = document.createElement('img');
-      img.src = `/api/artwork?path=${enc(item.path)}`;
-      img.setAttribute('data-loaded', 'false');
-      img.onload = () => { img.setAttribute('data-loaded', 'true'); thumb.textContent = ''; thumb.appendChild(img); };
-      img.onerror = () => {};
+    } else if (item.type === 'file') {
+      thumb.dataset.artPath = item.path;
+      artworkObserver.observe(thumb);
     }
 
     const name = document.createElement('span');
@@ -965,10 +1357,111 @@ const FileBrowser = (() => {
     render();
   });
 
+  history.replaceState({ type: 'browse', path: '' }, '');
   load();
 
-  return { navigate, setPlaying, refresh };
+  function reload() { load(); }
+
+  return { navigate, setPlaying, refresh, reload };
 })();
+
+// Keep --player-h in sync with the actual rendered player bar height
+new ResizeObserver(entries => {
+  const h = entries[0].target.offsetHeight;
+  if (h > 0) document.documentElement.style.setProperty('--player-h', h + 'px');
+}).observe(document.getElementById('player-bar'));
 
 // Restore queue + position after all modules are initialised
 Player.restore();
+if (!Player.isActive()) document.body.classList.add('player-hidden');
+
+// Keep the phone's WiFi radio alive via server-sent WebSocket pings.
+// Android puts the WiFi adapter into deep power-save when no inbound traffic
+// arrives; the server pings every 8 s prevents that — same mechanism as
+// WireGuard PersistentKeepalive. Only active while screen is locked + playing.
+(() => {
+  const _audio = document.getElementById('audio');
+  let _sock = null;
+
+  function _open() {
+    if (_sock && _sock.readyState < 2) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _sock = new WebSocket(`${proto}//${location.host}/_ws`);
+    _sock.addEventListener('open',  () => clog('ws:open'));
+    _sock.addEventListener('close', () => {
+      clog('ws:close');
+      _sock = null;
+      if (document.hidden && !_audio.paused) setTimeout(_open, 3000);
+    });
+    _sock.addEventListener('error', () => {});
+  }
+
+  function _close() { if (_sock) { _sock.close(); _sock = null; } }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !_audio.paused) _open(); else _close();
+  });
+  _audio.addEventListener('pause', _close);
+  _audio.addEventListener('play',  () => { if (document.hidden) _open(); });
+})();
+
+// Pull to refresh
+(() => {
+  const browserEl  = document.getElementById('browser');
+  const indicator  = document.getElementById('ptr-indicator');
+  const IND_H      = 52;
+  const THRESHOLD  = 72;
+  let startY = 0, startX = 0, active = false, pull = 0;
+
+  browserEl.addEventListener('touchstart', e => {
+    if (browserEl.scrollTop === 0) {
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      active = true;
+      pull = 0;
+      browserEl.style.transition = '';
+      indicator.style.transition = '';
+    }
+  }, { passive: true });
+
+  browserEl.addEventListener('touchmove', e => {
+    if (!active) return;
+    const dy = e.touches[0].clientY - startY;
+    const dx = Math.abs(e.touches[0].clientX - startX);
+    if (dy <= 0 || dx > dy) { active = false; return; }
+    e.preventDefault();
+    pull = Math.min(IND_H + THRESHOLD * 0.6, dy * 0.45);
+    browserEl.style.transform = `translateY(${pull}px)`;
+    indicator.style.transform = `translateY(${pull - IND_H}px)`;
+    indicator.style.opacity   = String(Math.min(1, pull / IND_H * 1.5));
+    indicator.classList.toggle('ptr-ready', pull >= THRESHOLD);
+  }, { passive: false });
+
+  function release() {
+    if (!active) return;
+    active = false;
+    const doRefresh = pull >= THRESHOLD;
+    pull = 0;
+    browserEl.style.transition  = 'transform 0.25s ease';
+    indicator.style.transition  = 'transform 0.25s ease, opacity 0.25s ease';
+    browserEl.style.transform   = '';
+    indicator.style.transform   = `translateY(-${IND_H}px)`;
+    indicator.style.opacity     = '0';
+    indicator.classList.remove('ptr-ready');
+    if (doRefresh) FileBrowser.reload();
+  }
+
+  browserEl.addEventListener('touchend',    release, { passive: true });
+  browserEl.addEventListener('touchcancel', release, { passive: true });
+})();
+
+// Back button: close fullscreen or navigate up the file tree
+window.addEventListener('popstate', e => {
+  const state = e.state;
+  if (!state) return;
+  if (FullscreenPlayer.isOpen()) {
+    FullscreenPlayer.close();
+  } else if (state.type === 'browse') {
+    FileBrowser.navigate(state.path, false);
+  }
+});
