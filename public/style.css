@@ -978,7 +978,13 @@ input[type=range]::-moz-range-thumb {
 }
 
 .fullscreen-player.video-mode .fs-extra {
+  justify-content: center;
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+.fullscreen-player.video-mode .fs-close {
+  z-index: 2;
+  transition: opacity 0.25s;
 }
 
 /* Gradient scrim behind controls */
@@ -996,6 +1002,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* Auto-hide controls in video mode */
+.fullscreen-player.video-mode.controls-hidden .fs-close,
 .fullscreen-player.video-mode.controls-hidden .fs-info,
 .fullscreen-player.video-mode.controls-hidden .fs-seek,
 .fullscreen-player.video-mode.controls-hidden .fs-controls,
