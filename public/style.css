@@ -936,3 +936,78 @@ input[type=range]::-moz-range-thumb {
 
   #search { width: 120px; }
 }
+
+/* ── Video mode fullscreen ── */
+.fullscreen-player.video-mode {
+  padding: 0;
+  gap: 0;
+  justify-content: flex-end;
+  background: #000;
+}
+
+/* Video fills full background */
+.fullscreen-player.video-mode .fs-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  aspect-ratio: unset;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+  z-index: 0;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+/* Controls overlay at bottom in video mode */
+.fullscreen-player.video-mode .fs-info,
+.fullscreen-player.video-mode .fs-seek,
+.fullscreen-player.video-mode .fs-controls,
+.fullscreen-player.video-mode .fs-extra {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 20px;
+  transition: opacity 0.25s;
+}
+
+.fullscreen-player.video-mode .fs-extra {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* Gradient scrim behind controls */
+.fullscreen-player.video-mode::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 55%;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+/* Auto-hide controls in video mode */
+.fullscreen-player.video-mode.controls-hidden .fs-info,
+.fullscreen-player.video-mode.controls-hidden .fs-seek,
+.fullscreen-player.video-mode.controls-hidden .fs-controls,
+.fullscreen-player.video-mode.controls-hidden .fs-extra {
+  opacity: 0;
+  pointer-events: none;
+}
+.fullscreen-player.video-mode.controls-hidden::after {
+  opacity: 0;
+}
+
+/* Mini player art area in video mode */
+.player-art-btn.video-mode .art-fallback { display: flex !important; }
+.player-art-btn.video-mode img { display: none; }

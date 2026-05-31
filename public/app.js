@@ -59,9 +59,9 @@ const MediaSessionManager = (() => {
     pause:         () => Player.playPause(),
     previoustrack: () => Player.playPrev(),
     nexttrack:     () => Player.playNext(),
-    seekto:        d  => { document.getElementById('audio').currentTime = d.seekTime; },
-    seekbackward:  d  => { document.getElementById('audio').currentTime -= (d.seekOffset || 10); },
-    seekforward:   d  => { document.getElementById('audio').currentTime += (d.seekOffset || 10); },
+    seekto:        d  => { const el = document.getElementById('video').hidden === false ? document.getElementById('video') : document.getElementById('audio'); el.currentTime = d.seekTime; },
+    seekbackward:  d  => { Player.skip(-(d.seekOffset || 10)); },
+    seekforward:   d  => { Player.skip(d.seekOffset || 10); },
   };
   for (const [action, handler] of Object.entries(actions)) {
     try { ms.setActionHandler(action, handler); } catch (_) {}
@@ -113,7 +113,24 @@ const WakeLock = (() => {
 // ── Player ────────────────────────────────────────────────────────────────────
 
 const Player = (() => {
-  const audio = document.getElementById('audio');
+  const audioEl = document.getElementById('audio');
+  const videoEl = document.getElementById('video');
+  let med = audioEl;  // currently active media element
+  let currentIsVideo = false;
+
+  const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.webm', '.avi', '.mov', '.mpg', '.mpeg', '.wmv']);
+  function isVideoPath(p) {
+    const i = p.lastIndexOf('.');
+    return i !== -1 && VIDEO_EXTS.has(p.slice(i).toLowerCase());
+  }
+
+  // Attach a handler to both elements; fires only when that element is the active one
+  function onBoth(event, fn) {
+    [audioEl, videoEl].forEach(el => el.addEventListener(event, function(e) {
+      if (this !== med) return;
+      fn.call(this, e);
+    }));
+  }
 
   // Player bar
   const playerBar     = document.getElementById('player-bar');
@@ -130,6 +147,9 @@ const Player = (() => {
 
   // Fullscreen
   const fsArtImg      = document.getElementById('fs-art-img');
+  const fsArtFallback = document.querySelector('.fs-art-fallback');
+  const playerArtBtn  = document.getElementById('player-art-btn');
+  const fsBtnRotate   = document.getElementById('fs-btn-rotate');
   const fsTitle       = document.getElementById('fs-title');
   const fsArtist      = document.getElementById('fs-artist');
   const fsBtnPlay     = document.getElementById('fs-btn-play');
@@ -159,13 +179,13 @@ const Player = (() => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         queue, originalQueue, queueIndex,
         shuffleMode, repeatMode, currentPath,
-        position: isFinite(audio.currentTime) ? audio.currentTime : 0,
+        position: isFinite(med.currentTime) ? med.currentTime : 0,
       }));
     } catch (_) {}
   }
 
   // ── Queries ──
-  function paused()         { return audio.paused; }
+  function paused()         { return med.paused; }
   function isActive()       { return queue.length > 0; }
   function getQueue()       { return [...queue]; }
   function getQueueIndex()  { return queueIndex; }
@@ -195,13 +215,13 @@ const Player = (() => {
 
   function syncSeek() {
     if (isSeeking) return;
-    const pct = isFinite(audio.duration) ? (audio.currentTime / audio.duration) * 100 : 0;
+    const pct = isFinite(med.duration) ? (med.currentTime / med.duration) * 100 : 0;
     [seekBar, fsSeekBar].forEach(s => { s.value = pct; });
-    const cur = formatTime(audio.currentTime);
+    const cur = formatTime(med.currentTime);
     timeCurrent.textContent   = cur;
     fsTimeCurrent.textContent = cur;
-    if (isFinite(audio.duration)) {
-      const tot = formatTime(audio.duration);
+    if (isFinite(med.duration)) {
+      const tot = formatTime(med.duration);
       timeTotal.textContent   = tot;
       fsTimeTotal.textContent = tot;
     }
@@ -215,16 +235,42 @@ const Player = (() => {
     });
   }
 
+  // ── setMediaMode ──
+  function setMediaMode(isVideo) {
+    currentIsVideo = isVideo;
+    med = isVideo ? videoEl : audioEl;
+    if (isVideo) {
+      audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load();
+      fsArtImg.hidden = true;
+      fsArtFallback.hidden = true;
+      videoEl.hidden = false;
+      playerArtBtn.classList.add('video-mode');
+      fsBtnRotate.hidden = false;
+      document.getElementById('fullscreen-player').classList.add('video-mode');
+    } else {
+      videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load();
+      videoEl.hidden = true;
+      fsArtImg.hidden = false;
+      fsArtFallback.hidden = false;
+      playerArtBtn.classList.remove('video-mode');
+      fsBtnRotate.hidden = true;
+      document.getElementById('fullscreen-player').classList.remove('video-mode');
+    }
+  }
+
   // ── Load & play ──
   async function loadTrack(path, play = true) {
+    const isVideo = isVideoPath(path);
+    if (isVideo !== currentIsVideo) setMediaMode(isVideo);
+
     playerBar.hidden = false;
     document.body.classList.remove('player-hidden');
     currentPath = path;
     lastGoodPosition = 0; // new track - don't restore old position on play events
     clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null;
     saveState();
-    audio.src = `/api/stream?path=${enc(path)}`;
-    audio.load();
+    med.src = `/api/stream?path=${enc(path)}`;
+    med.load();
 
     [seekBar, fsSeekBar].forEach(s => { s.value = 0; });
     [timeCurrent, fsTimeCurrent, timeTotal, fsTimeTotal].forEach(t => { t.textContent = '0:00'; });
@@ -249,32 +295,33 @@ const Player = (() => {
         MediaSessionManager.update({ title: name, artist: '', artworkPath: path });
       });
 
-    syncArt(path);
+    if (!currentIsVideo) syncArt(path);
     FileBrowser.setPlaying(path);
     QueuePanel.refresh();
 
     if (play) {
       try {
-        await audio.play();
+        await med.play();
         syncPlayIcon(true);
         WakeLock.acquire();
+        if (isVideo) FullscreenPlayer.open();
       } catch (e) { console.warn('Playback failed:', e); }
     }
   }
 
   // ── Controls ──
   function playPause() {
-    if (audio.paused) {
-      audio.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+    if (med.paused) {
+      med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
     } else {
-      audio.pause();
+      med.pause();
       syncPlayIcon(false);
       WakeLock.release();
     }
   }
 
   function playNext() {
-    if (repeatMode === 'one') { audio.currentTime = 0; audio.play(); return; }
+    if (repeatMode === 'one') { med.currentTime = 0; med.play(); return; }
     if (queueIndex < queue.length - 1) {
       queueIndex++;
     } else if (repeatMode === 'queue') {
@@ -286,7 +333,7 @@ const Player = (() => {
   }
 
   function playPrev() {
-    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    if (med.currentTime > 3) { med.currentTime = 0; return; }
     if (queueIndex > 0) {
       queueIndex--;
       loadTrack(queue[queueIndex]);
@@ -294,7 +341,7 @@ const Player = (() => {
       queueIndex = queue.length - 1;
       loadTrack(queue[queueIndex]);
     } else {
-      audio.currentTime = 0;
+      med.currentTime = 0;
     }
   }
 
@@ -379,25 +426,25 @@ const Player = (() => {
   btnRepeat.addEventListener('click', cycleRepeat);
   fsBtnRepeat.addEventListener('click', cycleRepeat);
 
-  audio.addEventListener('timeupdate', () => {
-    if (audio.currentTime > 1) lastGoodPosition = audio.currentTime;
-    if (audio.currentTime > 1 && loadTimeoutTimer) { clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null; }
+  onBoth('timeupdate', function() {
+    if (med.currentTime > 1) lastGoodPosition = med.currentTime;
+    if (med.currentTime > 1 && loadTimeoutTimer) { clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null; }
     syncSeek();
     const now = Date.now();
     if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
   });
   // Keep lastGoodPosition honest after explicit seeks (including seek-to-0)
-  audio.addEventListener('seeked', () => { lastGoodPosition = audio.currentTime; });
-  audio.addEventListener('ended', () => {
+  onBoth('seeked', function() { lastGoodPosition = med.currentTime; });
+  onBoth('ended', function() {
     syncPlayIcon(false);
     playNext();
-    if (audio.paused) WakeLock.release();
+    if (med.paused) WakeLock.release();
   });
-  audio.addEventListener('pause',   () => { syncPlayIcon(false); MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
-  audio.addEventListener('play',    () => { syncPlayIcon(true);  MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
-  audio.addEventListener('stalled', () => clog('audio:stalled', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
-  audio.addEventListener('waiting', () => clog('audio:waiting', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) }));
-  audio.addEventListener('error',   () => clog('audio:error',   { code: audio.error?.code, msg: audio.error?.message, t: Math.round(audio.currentTime) }));
+  onBoth('pause',   function() { syncPlayIcon(false); MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  onBoth('play',    function() { syncPlayIcon(true);  MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  onBoth('stalled', function() { clog('audio:stalled', { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition) }); });
+  onBoth('waiting', function() { clog('audio:waiting', { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition) }); });
+  audioEl.addEventListener('error',   () => clog('audio:error',   { code: audioEl.error?.code, msg: audioEl.error?.message, t: Math.round(audioEl.currentTime) }));
 
   // Reconnect if the stream drops (e.g. phone locked, NAS timeout, Android throttling)
   let stallTimer = null;
@@ -405,23 +452,24 @@ const Player = (() => {
   let loadTimeoutTimer = null;
 
   function doReconnect(pos) {
+    if (med !== audioEl) return;
     clearInterval(stallTimer);
     clearTimeout(loadTimeoutTimer);
     stallTimer = null;
     loadTimeoutTimer = null;
     clog('reconnect', { pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
-    if (pos > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true });
-    // audio.load() aborts the existing HTTP request and frees the browser's
+    if (pos > 0) audioEl.addEventListener('loadedmetadata', () => { audioEl.currentTime = pos; }, { once: true });
+    // audioEl.load() aborts the existing HTTP request and frees the browser's
     // connection slot before we open a fresh one — without it, rapid reconnects
     // exhaust all 6 HTTP/1.1 slots and every subsequent request stalls immediately.
-    audio.load();
-    audio.play().catch(() => {
+    audioEl.load();
+    audioEl.play().catch(() => {
       // play() rejected while screen is off — retry when screen wakes
       if (document.hidden) {
         document.addEventListener('visibilitychange', function retryPlay() {
           if (!document.hidden) {
             document.removeEventListener('visibilitychange', retryPlay);
-            audio.play().catch(() => {});
+            audioEl.play().catch(() => {});
           }
         });
       }
@@ -429,7 +477,7 @@ const Player = (() => {
     // If audio doesn't advance past 1 s within 20 s, the reconnect itself stalled
     loadTimeoutTimer = setTimeout(() => {
       loadTimeoutTimer = null;
-      if (currentPath && !audio.paused && audio.currentTime < 1) {
+      if (currentPath && !audioEl.paused && audioEl.currentTime < 1) {
         clog('reconnect:timeout', { lgp: Math.round(lastGoodPosition) });
         doReconnect(lastGoodPosition);
       }
@@ -437,72 +485,73 @@ const Player = (() => {
   }
 
   function startStallWatch() {
+    if (med !== audioEl) return;
     clearInterval(stallTimer);
-    lastStallTime = audio.currentTime;
+    lastStallTime = audioEl.currentTime;
     stallTimer = setInterval(() => {
-      if (audio.paused || !currentPath || isSeeking) { lastStallTime = audio.currentTime; return; }
-      if (isFinite(audio.duration) && audio.currentTime >= audio.duration - 0.5) return;
+      if (audioEl.paused || !currentPath || isSeeking) { lastStallTime = audioEl.currentTime; return; }
+      if (isFinite(audioEl.duration) && audioEl.currentTime >= audioEl.duration - 0.5) return;
       // Require currentTime > 0 to avoid triggering during the loading phase after a
       // fresh reconnect (the element sits at t=0 while buffering the new response).
-      if (audio.currentTime > 0 && audio.currentTime === lastStallTime) {
+      if (audioEl.currentTime > 0 && audioEl.currentTime === lastStallTime) {
         if (document.hidden) {
           // The stream is still TCP-alive but Firefox throttles background media
           // downloads while the screen is locked. Reconnecting just aborts a good
           // stream and opens a new one Firefox won't buffer either. Skip it — the
           // visibilitychange handler will reconnect if the stream doesn't resume
           // naturally when the screen turns on.
-          clog('stall:hidden-skip', { t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+          clog('stall:hidden-skip', { t: Math.round(audioEl.currentTime), lgp: Math.round(lastGoodPosition) });
           return;
         }
-        const pos = audio.currentTime > 1 ? audio.currentTime : lastGoodPosition;
-        clog('stall:reconnect', { t: Math.round(audio.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
+        const pos = audioEl.currentTime > 1 ? audioEl.currentTime : lastGoodPosition;
+        clog('stall:reconnect', { t: Math.round(audioEl.currentTime), pos: Math.round(pos), lgp: Math.round(lastGoodPosition), hidden: document.hidden });
         doReconnect(pos);
       } else {
-        lastStallTime = audio.currentTime;
+        lastStallTime = audioEl.currentTime;
       }
     }, 4000);
   }
-  audio.addEventListener('play',  startStallWatch);
-  audio.addEventListener('pause', () => {
+  audioEl.addEventListener('play',  startStallWatch);
+  audioEl.addEventListener('pause', () => {
     clearInterval(stallTimer);
     clearTimeout(loadTimeoutTimer);
     loadTimeoutTimer = null;
   });
 
   // Reload from saved position on network errors (connection dropped by router)
-  audio.addEventListener('error', () => {
+  audioEl.addEventListener('error', () => {
     if (!currentPath) return;
-    const code = audio.error && audio.error.code;
-    clog('error:handler', { code, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+    const code = audioEl.error && audioEl.error.code;
+    clog('error:handler', { code, t: Math.round(audioEl.currentTime), lgp: Math.round(lastGoodPosition) });
     if (code !== 2 && code !== 3) return; // MEDIA_ERR_NETWORK or MEDIA_ERR_DECODE only
-    doReconnect(audio.currentTime > 1 ? audio.currentTime : lastGoodPosition);
+    doReconnect(audioEl.currentTime > 1 ? audioEl.currentTime : lastGoodPosition);
   });
 
   // Tick MediaSession position so the OS lock screen scrubber stays accurate
   setInterval(() => {
-    if (!audio.paused) MediaSessionManager.setPosition(audio.currentTime, audio.duration, audio.playbackRate);
+    if (!med.paused) MediaSessionManager.setPosition(med.currentTime, med.duration, med.playbackRate);
   }, 1000);
 
   function setupSeekBar(bar, localTimeEl) {
     bar.addEventListener('mousedown', () => { isSeeking = true; });
     bar.addEventListener('touchstart', () => { isSeeking = true; }, { passive: true });
     bar.addEventListener('input', () => {
-      if (!isFinite(audio.duration)) return;
-      const t = (bar.value / 100) * audio.duration;
+      if (!isFinite(med.duration)) return;
+      const t = (bar.value / 100) * med.duration;
       const str = formatTime(t);
       timeCurrent.textContent   = str;
       fsTimeCurrent.textContent = str;
       [seekBar, fsSeekBar].forEach(s => { s.value = bar.value; });
     });
     bar.addEventListener('change', () => {
-      if (isFinite(audio.duration)) audio.currentTime = (bar.value / 100) * audio.duration;
+      if (isFinite(med.duration)) med.currentTime = (bar.value / 100) * med.duration;
       isSeeking = false;
     });
   }
   setupSeekBar(seekBar, timeCurrent);
   setupSeekBar(fsSeekBar, fsTimeCurrent);
 
-  volumeBar.addEventListener('input', () => { audio.volume = volumeBar.value; });
+  volumeBar.addEventListener('input', () => { med.volume = volumeBar.value; });
 
   // Art thumbnail → fullscreen
   document.getElementById('player-art-btn').addEventListener('click', () => {
@@ -520,11 +569,11 @@ const Player = (() => {
 
   // Skip ±30s
   document.getElementById('fs-btn-skip-back').addEventListener('click', () => {
-    audio.currentTime = Math.max(0, audio.currentTime - 30);
+    med.currentTime = Math.max(0, med.currentTime - 30);
   });
   document.getElementById('fs-btn-skip-fwd').addEventListener('click', () => {
-    if (isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, audio.currentTime + 30);
-    else audio.currentTime += 30;
+    if (isFinite(med.duration)) med.currentTime = Math.min(med.duration, med.currentTime + 30);
+    else med.currentTime += 30;
   });
 
   // ── Restore persisted state on page load ──
@@ -546,17 +595,19 @@ const Player = (() => {
       syncRepeatIcon();
 
       const savedPos = s.position || 0;
-      audio.src = `/api/stream?path=${enc(currentPath)}`;
-      audio.load();
+      const restoreIsVideo = isVideoPath(currentPath);
+      if (restoreIsVideo !== currentIsVideo) setMediaMode(restoreIsVideo);
+      med.src = `/api/stream?path=${enc(currentPath)}`;
+      med.load();
 
       if (savedPos > 0) {
-        audio.addEventListener('loadedmetadata', () => {
-          audio.currentTime = savedPos;
+        med.addEventListener('loadedmetadata', () => {
+          med.currentTime = savedPos;
           syncSeek();
         }, { once: true });
       }
 
-      syncArt(currentPath);
+      if (!currentIsVideo) syncArt(currentPath);
 
       const name = currentPath.split('/').pop().replace(/\.[^.]+$/, '');
       fsTitle.textContent  = name;
@@ -586,9 +637,9 @@ const Player = (() => {
   }
 
   function clear() {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load();
+    videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load();
+    if (currentIsVideo) setMediaMode(false);
     queue = [];
     originalQueue = null;
     queueIndex = -1;
@@ -641,9 +692,9 @@ const Player = (() => {
   let wifiKeepAlive = null;
   let bufferMonitor = null;
   document.addEventListener('visibilitychange', () => {
-    clog('visibility', { hidden: document.hidden, paused: audio.paused, t: Math.round(audio.currentTime), lgp: Math.round(lastGoodPosition) });
+    clog('visibility', { hidden: document.hidden, paused: med.paused, t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition) });
     if (document.hidden) {
-      if (!audio.paused) {
+      if (!med.paused) {
         // Log fetch success/fail to prove network access works while locked
         wifiKeepAlive = setInterval(() => {
           fetch('/api/browse?path=', { signal: AbortSignal.timeout(5000) })
@@ -652,10 +703,10 @@ const Player = (() => {
         }, 15000);
         // Log Firefox's audio buffer state every 10s to see how much it buffered
         bufferMonitor = setInterval(() => {
-          if (audio.paused || !currentPath) return;
-          const buf = audio.buffered;
-          const end = buf.length > 0 ? buf.end(buf.length - 1) : audio.currentTime;
-          clog('buffer', { t: Math.round(audio.currentTime), end: Math.round(end), ahead: Math.round(end - audio.currentTime) });
+          if (med.paused || !currentPath) return;
+          const buf = med.buffered;
+          const end = buf.length > 0 ? buf.end(buf.length - 1) : med.currentTime;
+          clog('buffer', { t: Math.round(med.currentTime), end: Math.round(end), ahead: Math.round(end - med.currentTime) });
         }, 10000);
       }
     } else {
@@ -666,33 +717,33 @@ const Player = (() => {
 
       // When the screen turns on, Firefox resumes buffering the paused stream.
       // Give it 2 seconds to advance on its own before deciding it needs a reconnect.
-      if (!audio.paused && currentPath) {
-        const posAtWake = audio.currentTime;
+      if (!med.paused && currentPath) {
+        const posAtWake = med.currentTime;
         setTimeout(() => {
-          if (!audio.paused && audio.currentTime === posAtWake) {
+          if (!med.paused && med.currentTime === posAtWake) {
             // Still frozen — stream must have actually died while locked
             clog('wake:reconnect', { pos: Math.round(posAtWake), lgp: Math.round(lastGoodPosition) });
             doReconnect(posAtWake > 1 ? posAtWake : lastGoodPosition);
           } else {
-            clog('wake:ok', { t: Math.round(audio.currentTime) });
+            clog('wake:ok', { t: Math.round(med.currentTime) });
           }
         }, 2000);
       }
     }
   });
-  audio.addEventListener('pause', () => { clearInterval(wifiKeepAlive); clearInterval(bufferMonitor); wifiKeepAlive = null; bufferMonitor = null; });
+  audioEl.addEventListener('pause', () => { clearInterval(wifiKeepAlive); clearInterval(bufferMonitor); wifiKeepAlive = null; bufferMonitor = null; });
 
   // When the browser resets the audio element to position 0 after a dropped
   // connection and then auto-resumes (the "started from the beginning" bug),
   // lastGoodPosition holds the last real position and we jump back to it.
   // This fires only when currentTime < 1 AND we had been > 1s into the track.
-  audio.addEventListener('play', () => {
-    if (audio.currentTime < 1 && lastGoodPosition > 1) {
+  audioEl.addEventListener('play', () => {
+    if (audioEl.currentTime < 1 && lastGoodPosition > 1) {
       clog('play:restore', { lgp: Math.round(lastGoodPosition) });
-      if (audio.readyState >= 1) {
-        audio.currentTime = lastGoodPosition;
+      if (audioEl.readyState >= 1) {
+        audioEl.currentTime = lastGoodPosition;
       } else {
-        audio.addEventListener('loadedmetadata', () => { audio.currentTime = lastGoodPosition; }, { once: true });
+        audioEl.addEventListener('loadedmetadata', () => { audioEl.currentTime = lastGoodPosition; }, { once: true });
       }
     }
   });
@@ -700,7 +751,9 @@ const Player = (() => {
   return {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
-    playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue
+    playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue,
+    isCurrentVideo: () => currentIsVideo,
+    skip: (secs) => { med.currentTime = Math.max(0, Math.min(isFinite(med.duration) ? med.duration : Infinity, med.currentTime + secs)); },
   };
 })();
 
@@ -900,11 +953,90 @@ const QueuePanel = (() => {
 const FullscreenPlayer = (() => {
   const el = document.getElementById('fullscreen-player');
 
-  function open()  { history.pushState({ type: 'fullscreen' }, ''); el.hidden = false; }
-  function close() { el.hidden = true; }
+  let controlsHideTimer = null;
+  let tapTimer = null;
+
+  function showControls() {
+    el.classList.remove('controls-hidden');
+    clearTimeout(controlsHideTimer);
+    if (!Player.paused()) {
+      controlsHideTimer = setTimeout(() => {
+        if (Player.isCurrentVideo() && !Player.paused()) el.classList.add('controls-hidden');
+      }, 3000);
+    }
+  }
+
+  function open() {
+    history.pushState({ type: 'fullscreen' }, '');
+    el.hidden = false;
+    if (Player.isCurrentVideo()) showControls();
+  }
+
+  function close() {
+    el.hidden = true;
+    el.classList.remove('controls-hidden');
+    clearTimeout(controlsHideTimer);
+    clearTimeout(tapTimer);
+    controlsHideTimer = null;
+    tapTimer = null;
+  }
+
   function isOpen() { return !el.hidden; }
 
   document.getElementById('fs-close').addEventListener('click', () => history.back());
+
+  // Rotate button
+  document.getElementById('fs-btn-rotate').addEventListener('click', async () => {
+    try {
+      const type = screen.orientation.type;
+      if (type.startsWith('landscape')) {
+        await screen.orientation.lock('portrait-primary');
+      } else {
+        await screen.orientation.lock('landscape-primary');
+      }
+    } catch (_) {}
+  });
+
+  // Double-tap skip + single-tap toggle controls — video mode only
+  // Uses touchend for responsiveness; falls back to click on desktop
+  function handleTap(x) {
+    if (!Player.isCurrentVideo()) return;
+    if (tapTimer) {
+      // Double tap
+      clearTimeout(tapTimer);
+      tapTimer = null;
+      Player.skip(x < el.clientWidth / 2 ? -30 : 30);
+      showControls();
+    } else {
+      tapTimer = setTimeout(() => {
+        tapTimer = null;
+        // Single tap
+        if (el.classList.contains('controls-hidden')) {
+          showControls();
+        } else {
+          Player.playPause();
+        }
+      }, 220);
+    }
+  }
+
+  // Touch: fast and avoids 300ms click delay
+  el.addEventListener('touchend', e => {
+    if (!Player.isCurrentVideo()) return;
+    if (e.target.closest('button, input, .fs-close')) return;
+    e.preventDefault();
+    handleTap(e.changedTouches[0].clientX);
+  }, { passive: false });
+
+  // Mouse (desktop fallback)
+  el.addEventListener('click', e => {
+    if (!Player.isCurrentVideo()) return;
+    if (e.target.closest('button, input, .fs-close')) return;
+    handleTap(e.clientX);
+  });
+
+  // Re-show controls on seek bar interaction
+  el.addEventListener('input', () => { if (Player.isCurrentVideo()) showControls(); });
 
   return { open, close, isOpen };
 })();
@@ -1381,7 +1513,10 @@ if (!Player.isActive()) document.body.classList.add('player-hidden');
 // WireGuard PersistentKeepalive. Only active while screen is locked + playing.
 (() => {
   const _audio = document.getElementById('audio');
+  const _video = document.getElementById('video');
   let _sock = null;
+
+  function _isPlaying() { return !_audio.paused || !_video.paused; }
 
   function _open() {
     if (_sock && _sock.readyState < 2) return;
@@ -1391,7 +1526,7 @@ if (!Player.isActive()) document.body.classList.add('player-hidden');
     _sock.addEventListener('close', () => {
       clog('ws:close');
       _sock = null;
-      if (document.hidden && !_audio.paused) setTimeout(_open, 3000);
+      if (document.hidden && _isPlaying()) setTimeout(_open, 3000);
     });
     _sock.addEventListener('error', () => {});
   }
@@ -1399,10 +1534,12 @@ if (!Player.isActive()) document.body.classList.add('player-hidden');
   function _close() { if (_sock) { _sock.close(); _sock = null; } }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !_audio.paused) _open(); else _close();
+    if (document.hidden && _isPlaying()) _open(); else _close();
   });
-  _audio.addEventListener('pause', _close);
+  _audio.addEventListener('pause', () => { if (!_isPlaying()) _close(); });
+  _video.addEventListener('pause', () => { if (!_isPlaying()) _close(); });
   _audio.addEventListener('play',  () => { if (document.hidden) _open(); });
+  _video.addEventListener('play',  () => { if (document.hidden) _open(); });
 })();
 
 // Pull to refresh
