@@ -1069,6 +1069,7 @@ input[type=range]::-moz-range-thumb {
 .pw-group input { flex:1; border-radius:6px 0 0 6px !important; }
 .pw-eye { background:var(--surface); border:1px solid var(--border); border-left:none; color:var(--text-muted); border-radius:0 6px 6px 0; padding:0 10px; cursor:pointer; display:flex; align-items:center; flex-shrink:0; transition:color .12s; }
 .pw-eye:hover { color:var(--text); }
+.pw-eye svg[hidden] { display:none; }
 
 /* ── Admin select (user dropdown in edit section) ── */
 .admin-select { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; width:100%; margin-top:4px; }
@@ -1084,6 +1085,7 @@ input[type=range]::-moz-range-thumb {
 .ftree-expand { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:9px; width:14px; text-align:center; flex-shrink:0; padding:0; line-height:1; }
 .ftree-expand:hover { color:var(--text); }
 .ftree-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; user-select:none; }
+.admin-form .ftree-label { flex-direction:row !important; align-items:center !important; }
 .ftree-label input[type=checkbox] { accent-color:var(--accent); flex-shrink:0; }
 .ftree-loading { font-size:12px; color:var(--text-muted); padding:4px 2px; }
 .admin-form-actions { display:flex; gap:8px; justify-content:flex-end; }
@@ -1110,6 +1112,11 @@ input[type=range]::-moz-range-thumb {
 .playlist-tracks { padding:0 12px 8px; display:flex; flex-direction:column; gap:2px; }
 .playlist-track { font-size:12px; color:var(--text-muted); padding:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
 .playlist-track:hover { color:var(--text); }
+
+/* ── Fullscreen takeover row ── */
+.fs-takeover { display:flex; justify-content:center; padding:8px 0 4px; }
+.fs-takeover[hidden] { display:none; }
+.fs-takeover-btn { background:var(--accent); color:#000; border:none; border-radius:8px; padding:8px 28px; cursor:pointer; font-size:13px; font-weight:600; }
 
 /* ── Sync banners ── */
 .sync-banner { position:fixed; left:0; right:0; bottom:var(--player-h); background:var(--surface); border-top:1px solid var(--accent); padding:10px 16px; display:flex; align-items:center; gap:10px; z-index:150; font-size:13px; }

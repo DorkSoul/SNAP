@@ -168,6 +168,7 @@ const Player = (() => {
   let repeatMode    = 'off'; // 'off' | 'queue' | 'one'
   let isSeeking     = false;
   let currentPath   = null;
+  let _pendingRestorePosition = 0; // position to seek to on first play after restore
 
   // ── Persistence ──
   const STORAGE_KEY = 'snap_state';
@@ -312,7 +313,22 @@ const Player = (() => {
   // ── Controls ──
   function playPause() {
     if (med.paused) {
-      med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+      if (!med.src && currentPath) {
+        // First play after page restore — load the track then seek to saved position
+        const pos = _pendingRestorePosition;
+        _pendingRestorePosition = 0;
+        loadTrack(currentPath, false).then(() => {
+          const doPlay = () => med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+          if (pos > 0) {
+            if (med.readyState >= 1) { med.currentTime = pos; syncSeek(); doPlay(); }
+            else med.addEventListener('loadedmetadata', () => { med.currentTime = pos; syncSeek(); doPlay(); }, { once: true });
+          } else {
+            doPlay();
+          }
+        });
+      } else {
+        med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+      }
     } else {
       med.pause();
       syncPlayIcon(false);
@@ -594,18 +610,10 @@ const Player = (() => {
       syncShuffleIcon();
       syncRepeatIcon();
 
-      const savedPos = s.position || 0;
+      _pendingRestorePosition = s.position || 0;
       const restoreIsVideo = isVideoPath(currentPath);
       if (restoreIsVideo !== currentIsVideo) setMediaMode(restoreIsVideo);
-      med.src = `/api/stream?path=${enc(currentPath)}`;
-      med.load();
-
-      if (savedPos > 0) {
-        med.addEventListener('loadedmetadata', () => {
-          med.currentTime = savedPos;
-          syncSeek();
-        }, { once: true });
-      }
+      // Don't load media src here — deferred to first play to avoid browser "Continue playing" prompt
 
       if (!currentIsVideo) syncArt(currentPath);
 
@@ -1773,6 +1781,7 @@ const SyncManager = (() => {
   const takeoverBtn     = document.getElementById('takeover-btn');
   const takeoverDismiss = document.getElementById('takeover-dismiss');
   const fsTakeoverBtn   = document.getElementById('fs-btn-takeover');
+  const fsTakeoverRow   = document.getElementById('fs-takeover-row');
 
   let myDeviceId = localStorage.getItem('snap_device_id');
   if (!myDeviceId) {
@@ -1797,7 +1806,7 @@ const SyncManager = (() => {
   }
 
   function updateTakeoverBtn() {
-    if (fsTakeoverBtn) fsTakeoverBtn.hidden = isActiveDevice();
+    if (fsTakeoverRow) fsTakeoverRow.hidden = isActiveDevice();
   }
 
   function getPlayerState() {
