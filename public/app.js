@@ -807,7 +807,9 @@ const QueueModal = (() => {
   btnCancel.addEventListener('click', hide);
   overlay.addEventListener('click', e => { if (e.target === overlay) hide(); });
 
-  return { show };
+  function getPendingPaths() { return [...pendingPaths]; }
+
+  return { show, getPendingPaths };
 })();
 
 // ── Queue Panel ───────────────────────────────────────────────────────────────
@@ -1249,9 +1251,11 @@ const FileBrowser = (() => {
     let data;
     try {
       const res = await fetch(`/api/browse?path=${enc(currentPath)}`);
+      if (res.status === 401) return; // login overlay will appear via fetch interceptor
       if (!res.ok) throw new Error(res.statusText);
       data = await res.json();
     } catch (e) {
+      if (!document.getElementById('login-overlay').hidden) return;
       browserEl.innerHTML = `<div class="browser-empty">Error: ${e.message}</div>`;
       return;
     }
@@ -1516,7 +1520,9 @@ const FileBrowser = (() => {
 
   function reload() { load(); }
 
-  return { navigate, setPlaying, refresh, reload };
+  function getSelectedPaths() { return [...selectedPaths]; }
+
+  return { navigate, setPlaying, refresh, reload, getSelectedPaths };
 })();
 
 // Keep --player-h in sync with the actual rendered player bar height
@@ -1525,8 +1531,7 @@ new ResizeObserver(entries => {
   if (h > 0) document.documentElement.style.setProperty('--player-h', h + 'px');
 }).observe(document.getElementById('player-bar'));
 
-// Restore queue + position after all modules are initialised
-Player.restore();
+// Player.restore() is called in onReady() after auth
 if (!Player.isActive()) document.body.classList.add('player-hidden');
 
 // Keep the phone's WiFi radio alive via server-sent WebSocket pings.
@@ -1624,3 +1629,704 @@ window.addEventListener('popstate', e => {
     FileBrowser.navigate(state.path, false);
   }
 });
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+const Auth = (() => {
+  const overlay    = document.getElementById('login-overlay');
+  const subtitle   = document.getElementById('login-subtitle');
+  const userInput  = document.getElementById('login-username');
+  const passInput  = document.getElementById('login-password');
+  const submitBtn  = document.getElementById('login-submit');
+  const errorEl    = document.getElementById('login-error');
+
+  let _user = null;
+  let _isSetup = false;
+
+  function currentUser() { return _user; }
+
+  function showOverlay(isSetup) {
+    _isSetup = isSetup;
+    subtitle.textContent = isSetup ? 'Create your admin account to get started.' : '';
+    submitBtn.textContent = isSetup ? 'Create account' : 'Sign in';
+    errorEl.textContent = '';
+    overlay.hidden = false;
+  }
+
+  function hideOverlay() { overlay.hidden = true; }
+
+  async function submit() {
+    const username = userInput.value.trim();
+    const password = passInput.value;
+    errorEl.textContent = '';
+    if (!username || !password) { errorEl.textContent = 'Enter username and password.'; return; }
+    submitBtn.disabled = true;
+    try {
+      const endpoint = _isSetup ? '/api/auth/setup' : '/api/auth/login';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error || 'Login failed.'; return; }
+      _user = data;
+      hideOverlay();
+      onReady();
+    } catch (e) {
+      errorEl.textContent = 'Network error.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  submitBtn.addEventListener('click', submit);
+  [userInput, passInput].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  });
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+  }
+
+  async function init() {
+    try {
+      const setupRes = await fetch('/api/auth/setup-check');
+      const { needsSetup } = await setupRes.json();
+      if (needsSetup) { showOverlay(true); return; }
+
+      const meRes = await fetch('/api/auth/me');
+      if (meRes.ok) {
+        _user = await meRes.json();
+        hideOverlay();
+        onReady();
+      } else {
+        showOverlay(false);
+      }
+    } catch {
+      showOverlay(false);
+    }
+  }
+
+  // Intercept 401s globally
+  const _origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const res = await _origFetch(...args);
+    if (res.status === 401) {
+      const url = typeof args[0] === 'string' ? args[0] : args[0].url || '';
+      if (!url.includes('/api/auth/')) {
+        _user = null;
+        showOverlay(false);
+      }
+    }
+    return res;
+  };
+
+  return { init, logout, currentUser };
+})();
+
+// ── User menu ─────────────────────────────────────────────────────────────────
+
+const UserMenu = (() => {
+  const btn      = document.getElementById('user-menu-btn');
+  const label    = document.getElementById('user-menu-label');
+  const dropdown = document.getElementById('user-menu-dropdown');
+  const adminBtn = document.getElementById('user-menu-admin');
+  const logoutBtn= document.getElementById('user-menu-logout');
+
+  function setup(user) {
+    label.textContent = user.username;
+    adminBtn.hidden = user.role !== 'admin';
+  }
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    dropdown.hidden = !dropdown.hidden;
+  });
+
+  document.addEventListener('click', () => { dropdown.hidden = true; });
+  dropdown.addEventListener('click', e => e.stopPropagation());
+
+  adminBtn.addEventListener('click', () => { dropdown.hidden = true; AdminPanel.open(); });
+  logoutBtn.addEventListener('click', () => { Auth.logout(); });
+
+  return { setup };
+})();
+
+// ── SyncManager ───────────────────────────────────────────────────────────────
+
+const SyncManager = (() => {
+  const resumeBanner   = document.getElementById('resume-banner');
+  const resumeText     = document.getElementById('resume-banner-text');
+  const resumeBtn      = document.getElementById('resume-btn');
+  const resumeDismiss  = document.getElementById('resume-dismiss');
+  const takeoverBanner = document.getElementById('takeover-banner');
+  const takeoverBtn    = document.getElementById('takeover-btn');
+  const takeoverDismiss= document.getElementById('takeover-dismiss');
+
+  let myDeviceId = localStorage.getItem('snap_device_id');
+  if (!myDeviceId) {
+    myDeviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    localStorage.setItem('snap_device_id', myDeviceId);
+  }
+
+  let pollTimer = null;
+  let takeoverPrompted = false;
+  let serverState = null;
+
+  function getPlayerState() {
+    return {
+      queue: Player.getQueue(),
+      index: Player.getQueueIndex(),
+      position: (() => {
+        const el = document.getElementById('audio');
+        return isFinite(el.currentTime) ? el.currentTime : 0;
+      })(),
+      sortKey: localStorage.getItem('snap_sort_key') || 'name',
+      sortDir: localStorage.getItem('snap_sort_dir') || 'asc',
+      deviceId: myDeviceId,
+    };
+  }
+
+  async function push(state) {
+    const body = state || getPlayerState();
+    try {
+      await fetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {}
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(() => {
+      if (!Player.paused()) push();
+    }, 5000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  async function init() {
+    try {
+      const res = await fetch('/api/state');
+      if (!res.ok) return;
+      serverState = await res.json();
+    } catch { return; }
+
+    if (!serverState || !serverState.queue || serverState.queue.length === 0) return;
+    if (!serverState.activeDeviceAt) return;
+
+    const age = Date.now() - serverState.activeDeviceAt;
+    const within30min = age < 30 * 60 * 1000;
+    if (!within30min) return;
+
+    if (serverState.activeDeviceId !== myDeviceId) {
+      // Different device had state - offer to resume
+      const track = serverState.queue[serverState.index] || serverState.queue[0];
+      const trackName = track ? track.split('/').pop().replace(/\.[^.]+$/, '') : 'your queue';
+      const pos = serverState.position ? formatTime(serverState.position) : '0:00';
+      resumeText.textContent = `Continue playing "${trackName}" from ${pos}?`;
+      resumeBanner.hidden = false;
+    }
+  }
+
+  resumeBtn.addEventListener('click', () => {
+    resumeBanner.hidden = true;
+    if (!serverState) return;
+    Player.loadState({
+      queue: serverState.queue,
+      index: serverState.index,
+      position: serverState.position,
+    });
+  });
+  resumeDismiss.addEventListener('click', () => { resumeBanner.hidden = true; });
+
+  takeoverBtn.addEventListener('click', () => {
+    takeoverBanner.hidden = true;
+    push();
+  });
+  takeoverDismiss.addEventListener('click', () => { takeoverBanner.hidden = true; });
+
+  function checkTakeover() {
+    if (takeoverPrompted || !serverState) return;
+    if (!serverState.activeDeviceId || serverState.activeDeviceId === myDeviceId) return;
+    if (!serverState.activeDeviceAt) return;
+    const age = Date.now() - serverState.activeDeviceAt;
+    if (age < 5 * 60 * 1000) {
+      takeoverPrompted = true;
+      takeoverBanner.hidden = false;
+    }
+  }
+
+  // Wire into audio play events for takeover check
+  document.getElementById('audio').addEventListener('play', () => {
+    checkTakeover();
+    startPolling();
+    push();
+  });
+  document.getElementById('audio').addEventListener('pause', () => {
+    stopPolling();
+    push();
+  });
+
+  return { init, push, startPolling, stopPolling, myDeviceId };
+})();
+
+// ── Playlists ─────────────────────────────────────────────────────────────────
+
+const Playlists = (() => {
+  const panel      = document.getElementById('playlists-panel');
+  const listEl     = document.getElementById('playlist-list');
+  const closeBtn   = document.getElementById('playlists-close');
+  const newBtn     = document.getElementById('new-playlist-btn');
+  const topbarBtn  = document.getElementById('btn-playlists');
+  const fsBtnPl    = document.getElementById('fs-btn-playlists');
+  const addModal   = document.getElementById('add-playlist-modal');
+  const addListEl  = document.getElementById('add-playlist-list');
+  const apmNew     = document.getElementById('apm-new');
+  const apmCancel  = document.getElementById('apm-cancel');
+
+  let _playlists   = [];
+  let _addCallback = null; // { paths } pending add
+
+  async function load() {
+    try {
+      const res = await fetch('/api/playlists');
+      if (!res.ok) return;
+      _playlists = await res.json();
+    } catch {}
+  }
+
+  function open() {
+    panel.hidden = false;
+    load().then(render);
+  }
+
+  function close() { panel.hidden = true; }
+
+  function render() {
+    listEl.innerHTML = '';
+    if (_playlists.length === 0) {
+      listEl.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No playlists yet</div>';
+      return;
+    }
+    for (const pl of _playlists) {
+      const item = document.createElement('div');
+      item.className = 'playlist-item';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'playlist-item-name';
+      nameEl.textContent = pl.name;
+
+      const countEl = document.createElement('span');
+      countEl.className = 'playlist-item-count';
+      countEl.textContent = `${pl.tracks.length} track${pl.tracks.length !== 1 ? 's' : ''}`;
+
+      const actions = document.createElement('span');
+      actions.className = 'playlist-item-actions';
+
+      const playBtn = document.createElement('button');
+      playBtn.className = 'admin-btn';
+      playBtn.textContent = 'Play';
+      playBtn.addEventListener('click', e => { e.stopPropagation(); playPlaylist(pl); });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'admin-btn danger';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', e => { e.stopPropagation(); deletePlaylist(pl.id); });
+
+      actions.append(playBtn, delBtn);
+      item.append(nameEl, countEl, actions);
+
+      // Expand/collapse tracks
+      let expanded = false;
+      let tracksEl = null;
+      item.addEventListener('click', () => {
+        expanded = !expanded;
+        if (expanded) {
+          tracksEl = document.createElement('div');
+          tracksEl.className = 'playlist-tracks';
+          if (pl.tracks.length === 0) {
+            tracksEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Empty playlist</span>';
+          }
+          for (const t of pl.tracks) {
+            const tr = document.createElement('div');
+            tr.className = 'playlist-track';
+            tr.textContent = (t.name || t.path.split('/').pop().replace(/\.[^.]+$/, ''));
+            tr.addEventListener('click', e => { e.stopPropagation(); Player.startQueue([t.path], 0); close(); });
+            tracksEl.appendChild(tr);
+          }
+          item.after(tracksEl);
+        } else {
+          if (tracksEl) { tracksEl.remove(); tracksEl = null; }
+        }
+      });
+
+      listEl.appendChild(item);
+    }
+  }
+
+  function playPlaylist(pl) {
+    if (pl.tracks.length === 0) return;
+    const paths = pl.tracks.map(t => t.path);
+    Player.startQueue(paths, 0);
+    close();
+  }
+
+  async function deletePlaylist(id) {
+    try {
+      await fetch(`/api/playlists/${id}`, { method: 'DELETE' });
+      await load();
+      render();
+    } catch {}
+  }
+
+  async function createPlaylist(name) {
+    try {
+      const res = await fetch('/api/playlists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return null;
+      const pl = await res.json();
+      await load();
+      render();
+      return pl;
+    } catch { return null; }
+  }
+
+  newBtn.addEventListener('click', async () => {
+    const name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+    await createPlaylist(name.trim());
+  });
+
+  // Add-to-playlist modal
+  async function showAddModal(paths) {
+    _addCallback = paths;
+    await load();
+    addListEl.innerHTML = '';
+    if (_playlists.length === 0) {
+      addListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No playlists yet — create one below.</div>';
+    }
+    for (const pl of _playlists) {
+      const btn = document.createElement('button');
+      btn.className = 'modal-btn';
+      btn.textContent = `${pl.name} (${pl.tracks.length} tracks)`;
+      btn.addEventListener('click', () => { addToPlaylist(pl, paths); addModal.hidden = true; });
+      addListEl.appendChild(btn);
+    }
+    addModal.hidden = false;
+  }
+
+  async function addToPlaylist(pl, paths) {
+    const newTracks = paths.map(p => ({ path: p, name: p.split('/').pop().replace(/\.[^.]+$/, '') }));
+    const tracks = [...pl.tracks, ...newTracks];
+    try {
+      await fetch(`/api/playlists/${pl.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks }),
+      });
+    } catch {}
+  }
+
+  apmNew.addEventListener('click', async () => {
+    addModal.hidden = true;
+    const name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+    const pl = await createPlaylist(name.trim());
+    if (pl && _addCallback) await addToPlaylist(pl, _addCallback);
+    _addCallback = null;
+  });
+  apmCancel.addEventListener('click', () => { addModal.hidden = true; _addCallback = null; });
+  addModal.addEventListener('click', e => { if (e.target === addModal) { addModal.hidden = true; _addCallback = null; } });
+
+  closeBtn.addEventListener('click', close);
+  topbarBtn.addEventListener('click', () => { panel.hidden ? open() : close(); });
+  fsBtnPl.addEventListener('click', () => { FullscreenPlayer.close(); open(); });
+
+  return { open, close, showAddModal, createPlaylist };
+})();
+
+// ── Admin Panel ───────────────────────────────────────────────────────────────
+
+const AdminPanel = (() => {
+  const panel       = document.getElementById('admin-panel');
+  const closeBtn    = document.getElementById('admin-close');
+  const userListEl  = document.getElementById('admin-user-list');
+  const addUserBtn  = document.getElementById('admin-add-user-btn');
+  const addForm     = document.getElementById('admin-add-user-form');
+  const editForm    = document.getElementById('admin-edit-user-form');
+
+  // Add form fields
+  const aaufUser    = document.getElementById('aauf-username');
+  const aaufPass    = document.getElementById('aauf-password');
+  const aaufRole    = document.getElementById('aauf-role');
+  const aaufFolders = document.getElementById('aauf-folders');
+  const aaufErr     = document.getElementById('aauf-error');
+  const aaufCancel  = document.getElementById('aauf-cancel');
+  const aaufSubmit  = document.getElementById('aauf-submit');
+
+  // Edit form fields
+  const aeufLabel   = document.getElementById('aeuf-username-display');
+  const aeufPass    = document.getElementById('aeuf-password');
+  const aeufRole    = document.getElementById('aeuf-role');
+  const aeufFolders = document.getElementById('aeuf-folders');
+  const aeufErr     = document.getElementById('aeuf-error');
+  const aeufCancel  = document.getElementById('aeuf-cancel');
+  const aeufSubmit  = document.getElementById('aeuf-submit');
+
+  let _users = [];
+  let _topDirs = [];
+  let _editUserId = null;
+
+  async function fetchTopDirs() {
+    try {
+      const res = await fetch('/api/browse?path=');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.items.filter(i => i.type === 'dir').map(i => i.name);
+    } catch { return []; }
+  }
+
+  function renderFolderChecks(container, topDirs, checked) {
+    container.innerHTML = '';
+    if (topDirs.length === 0) {
+      container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">No folders found</span>';
+      return;
+    }
+    for (const dir of topDirs) {
+      const lbl = document.createElement('label');
+      lbl.className = 'folder-check';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = dir;
+      cb.checked = checked.includes(dir);
+      lbl.append(cb, document.createTextNode(dir));
+      container.appendChild(lbl);
+    }
+  }
+
+  function getCheckedFolders(container) {
+    return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+  }
+
+  async function loadUsers() {
+    try {
+      const res = await fetch('/api/admin/users');
+      if (!res.ok) return;
+      _users = await res.json();
+    } catch {}
+  }
+
+  function renderUsers() {
+    userListEl.innerHTML = '';
+    if (_users.length === 0) {
+      userListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No users</div>';
+      return;
+    }
+    const currentUser = Auth.currentUser();
+    for (const u of _users) {
+      const row = document.createElement('div');
+      row.className = 'user-row';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'user-row-name';
+      nameEl.textContent = u.username + (u.id === currentUser?.id ? ' (you)' : '');
+      const roleEl = document.createElement('span');
+      roleEl.className = 'user-row-role';
+      roleEl.textContent = u.role;
+      const editBtn = document.createElement('button');
+      editBtn.className = 'admin-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => openEditForm(u));
+      const delBtn = document.createElement('button');
+      delBtn.className = 'admin-btn danger';
+      delBtn.textContent = 'Delete';
+      delBtn.disabled = u.id === currentUser?.id;
+      delBtn.addEventListener('click', () => deleteUser(u.id));
+      row.append(nameEl, roleEl, editBtn, delBtn);
+      userListEl.appendChild(row);
+    }
+  }
+
+  async function deleteUser(id) {
+    if (!confirm('Delete this user?')) return;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json(); alert(d.error); return; }
+      await loadUsers();
+      renderUsers();
+    } catch {}
+  }
+
+  function openAddForm() {
+    editForm.hidden = true;
+    addForm.hidden = false;
+    aaufUser.value = '';
+    aaufPass.value = '';
+    aaufRole.value = 'user';
+    aaufErr.textContent = '';
+    renderFolderChecks(aaufFolders, _topDirs, []);
+    aaufUser.focus();
+  }
+
+  function openEditForm(u) {
+    addForm.hidden = true;
+    _editUserId = u.id;
+    aeufLabel.textContent = `Editing: ${u.username}`;
+    aeufPass.value = '';
+    aeufRole.value = u.role;
+    aeufErr.textContent = '';
+    renderFolderChecks(aeufFolders, _topDirs, u.allowedPaths || []);
+    editForm.hidden = false;
+  }
+
+  addUserBtn.addEventListener('click', openAddForm);
+  aaufCancel.addEventListener('click', () => { addForm.hidden = true; });
+
+  aaufSubmit.addEventListener('click', async () => {
+    aaufErr.textContent = '';
+    const body = {
+      username: aaufUser.value.trim(),
+      password: aaufPass.value,
+      role: aaufRole.value,
+      allowedPaths: getCheckedFolders(aaufFolders),
+    };
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { aaufErr.textContent = data.error || 'Error'; return; }
+      addForm.hidden = true;
+      await loadUsers();
+      renderUsers();
+    } catch { aaufErr.textContent = 'Network error'; }
+  });
+
+  aeufCancel.addEventListener('click', () => { editForm.hidden = true; _editUserId = null; });
+
+  aeufSubmit.addEventListener('click', async () => {
+    aeufErr.textContent = '';
+    const body = {
+      role: aeufRole.value,
+      allowedPaths: getCheckedFolders(aeufFolders),
+    };
+    if (aeufPass.value) body.password = aeufPass.value;
+    try {
+      const res = await fetch(`/api/admin/users/${_editUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { aeufErr.textContent = data.error || 'Error'; return; }
+      editForm.hidden = true;
+      _editUserId = null;
+      await loadUsers();
+      renderUsers();
+    } catch { aeufErr.textContent = 'Network error'; }
+  });
+
+  closeBtn.addEventListener('click', close);
+
+  async function open() {
+    _topDirs = await fetchTopDirs();
+    await loadUsers();
+    renderUsers();
+    addForm.hidden = true;
+    editForm.hidden = true;
+    panel.hidden = false;
+  }
+
+  function close() { panel.hidden = true; }
+
+  return { open, close };
+})();
+
+// ── Wire Player.getState / Player.loadState ───────────────────────────────────
+// These augment the already-initialised Player closure by storing refs on the
+// object it returned.
+
+Player.getState = function() {
+  return {
+    queue: Player.getQueue(),
+    index: Player.getQueueIndex(),
+    position: (() => {
+      const el = document.getElementById('audio');
+      return isFinite(el.currentTime) ? el.currentTime : 0;
+    })(),
+    sortKey: localStorage.getItem('snap_sort_key') || 'name',
+    sortDir: localStorage.getItem('snap_sort_dir') || 'asc',
+  };
+};
+
+Player.loadState = function({ queue, index, position }) {
+  if (!Array.isArray(queue) || queue.length === 0) return;
+  // Use startQueue at the right index and seek to position after metadata loads
+  Player.startQueue(queue, typeof index === 'number' ? index : 0);
+  if (position && position > 0) {
+    const audioEl = document.getElementById('audio');
+    const seek = () => { audioEl.currentTime = position; };
+    if (audioEl.readyState >= 1) seek();
+    else audioEl.addEventListener('loadedmetadata', seek, { once: true });
+  }
+};
+
+// ── Wire sort changes into SyncManager ───────────────────────────────────────
+// Patch the sort buttons rendered by FileBrowser to push state on change.
+// We do this by observing clicks on .sort-btn elements via event delegation.
+document.getElementById('browser').addEventListener('click', e => {
+  if (e.target.classList.contains('sort-btn')) {
+    setTimeout(() => SyncManager.push(), 50);
+  }
+});
+
+// ── Wire "add to playlist" buttons ───────────────────────────────────────────
+document.getElementById('select-add-playlist').addEventListener('click', () => {
+  const selected = Array.from(document.querySelectorAll('.list-item.selected, .grid-item.selected'))
+    .map(el => {
+      // Find the path from the item's click data — stored as data-path or via the
+      // list items rendered by FileBrowser. We'll rely on QueueModal pattern instead.
+    });
+  // Easier: expose selected paths through FileBrowser
+  Playlists.showAddModal(FileBrowser.getSelectedPaths ? FileBrowser.getSelectedPaths() : []);
+});
+
+document.getElementById('qm-add-playlist').addEventListener('click', () => {
+  // get pending paths from QueueModal
+  const paths = QueueModal.getPendingPaths ? QueueModal.getPendingPaths() : [];
+  document.getElementById('queue-modal').hidden = true;
+  Playlists.showAddModal(paths);
+});
+
+// ── App startup ───────────────────────────────────────────────────────────────
+
+let _appReady = false;
+function onReady() {
+  const user = Auth.currentUser();
+  if (!user) return;
+  UserMenu.setup(user);
+  // Load the file browser (first real load after auth)
+  FileBrowser.reload();
+  // Restore queue from localStorage
+  Player.restore();
+  if (!Player.isActive()) document.body.classList.add('player-hidden');
+  // Init cross-device sync
+  SyncManager.init();
+  _appReady = true;
+}
+
+Auth.init();

@@ -8,16 +8,46 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Login overlay -->
+  <div id="login-overlay">
+    <div class="login-box">
+      <h1>SNAP</h1>
+      <p id="login-subtitle" style="font-size:13px;color:var(--text-muted);text-align:center;"></p>
+      <div class="login-field">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false" />
+      </div>
+      <div class="login-field">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" autocomplete="current-password" />
+      </div>
+      <button class="login-submit" id="login-submit">Sign in</button>
+      <p class="login-error" id="login-error"></p>
+    </div>
+  </div>
+
   <header class="topbar">
     <span class="logo"><img src="logo.svg" alt="SNAP" class="logo-img" />SNAP</span>
     <div class="topbar-controls">
       <input type="text" id="search" placeholder="Search…" autocomplete="off" />
+      <button id="btn-playlists" class="extra-btn" title="Playlists">
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>
+      </button>
       <button id="btn-list" class="view-btn active" title="List view">
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>
       </button>
       <button id="btn-grid" class="view-btn" title="Grid view">
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       </button>
+      <div class="user-menu-wrap">
+        <button id="user-menu-btn">
+          <span id="user-menu-label">—</span>
+        </button>
+        <div id="user-menu-dropdown" hidden>
+          <button class="user-menu-item" id="user-menu-admin" hidden>Admin</button>
+          <button class="user-menu-item" id="user-menu-logout">Logout</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -72,6 +102,18 @@
     </div>
   </footer>
 
+  <!-- Cross-device sync banners -->
+  <div class="sync-banner" id="resume-banner" hidden>
+    <span class="sync-banner-text" id="resume-banner-text">Continue playing from where you left off?</span>
+    <button class="sync-banner-btn" id="resume-btn">Resume</button>
+    <button class="sync-banner-dismiss" id="resume-dismiss">&#x2715;</button>
+  </div>
+  <div class="sync-banner" id="takeover-banner" hidden>
+    <span class="sync-banner-text">Another device is active. Take over playback here?</span>
+    <button class="sync-banner-btn" id="takeover-btn">Take Over</button>
+    <button class="sync-banner-dismiss" id="takeover-dismiss">&#x2715;</button>
+  </div>
+
   <!-- Selection action bar -->
   <div class="select-bar" id="select-bar" hidden>
     <span id="select-count">0 selected</span>
@@ -81,6 +123,7 @@
         Play now
       </button>
       <button id="select-add-queue">+ Add to end of queue</button>
+      <button id="select-add-playlist">+ Playlist</button>
       <button id="select-cancel">
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -97,7 +140,18 @@
       </button>
       <button class="modal-btn" id="qm-play-next">+ Add next in queue</button>
       <button class="modal-btn" id="qm-add-end">+ Add to end of queue</button>
+      <button class="modal-btn" id="qm-add-playlist">+ Add to playlist</button>
       <button class="modal-btn modal-cancel" id="qm-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Add to playlist modal -->
+  <div class="modal-overlay" id="add-playlist-modal" hidden>
+    <div class="modal">
+      <p class="modal-track-name">Add to playlist</p>
+      <div id="add-playlist-list" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;margin:4px 0;"></div>
+      <button class="modal-btn" id="apm-new">+ New playlist</button>
+      <button class="modal-btn modal-cancel" id="apm-cancel">Cancel</button>
     </div>
   </div>
 
@@ -110,6 +164,77 @@
       </button>
     </div>
     <div class="queue-list" id="queue-list"></div>
+  </div>
+
+  <!-- Playlists panel -->
+  <div id="playlists-panel" hidden>
+    <div class="playlist-header">
+      <span>Playlists</span>
+      <button id="playlists-close" title="Close" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;">
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="playlist-list" id="playlist-list"></div>
+    <div class="playlist-footer">
+      <button class="new-playlist-btn" id="new-playlist-btn">+ New playlist</button>
+    </div>
+  </div>
+
+  <!-- Admin panel -->
+  <div id="admin-panel" hidden>
+    <div class="admin-header">
+      <h2>Admin</h2>
+      <button class="admin-btn" id="admin-close">Close</button>
+    </div>
+    <div class="admin-body">
+      <div class="admin-section">
+        <h3>Users</h3>
+        <div id="admin-user-list"></div>
+        <button class="admin-btn" id="admin-add-user-btn" style="align-self:flex-start;margin-top:6px;">+ Add user</button>
+        <div id="admin-add-user-form" hidden class="admin-form">
+          <label>Username
+            <input type="text" id="aauf-username" autocapitalize="none" spellcheck="false" />
+          </label>
+          <label>Password
+            <input type="password" id="aauf-password" autocomplete="new-password" />
+          </label>
+          <label>Role
+            <select id="aauf-role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <label>Folder access
+            <div class="folder-checks" id="aauf-folders"></div>
+          </label>
+          <div class="admin-form-actions">
+            <button class="btn-cancel" id="aauf-cancel">Cancel</button>
+            <button class="btn-primary" id="aauf-submit">Create</button>
+          </div>
+          <p class="login-error" id="aauf-error"></p>
+        </div>
+        <div id="admin-edit-user-form" hidden class="admin-form">
+          <div id="aeuf-username-display" style="font-size:13px;color:var(--text-muted);"></div>
+          <label>New password (leave blank to keep)
+            <input type="password" id="aeuf-password" autocomplete="new-password" placeholder="(unchanged)" />
+          </label>
+          <label>Role
+            <select id="aeuf-role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <label>Folder access
+            <div class="folder-checks" id="aeuf-folders"></div>
+          </label>
+          <div class="admin-form-actions">
+            <button class="btn-cancel" id="aeuf-cancel">Cancel</button>
+            <button class="btn-primary" id="aeuf-submit">Save</button>
+          </div>
+          <p class="login-error" id="aeuf-error"></p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Fullscreen player -->
@@ -169,6 +294,9 @@
       </button>
       <button id="fs-btn-queue" class="extra-btn" title="Queue">
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>
+      </button>
+      <button id="fs-btn-playlists" class="extra-btn" title="Playlists">
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>
       </button>
       <button id="fs-btn-rotate" class="extra-btn" title="Rotate" hidden>
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
