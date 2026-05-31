@@ -19,7 +19,23 @@
       </div>
       <div class="login-field">
         <label for="login-password">Password</label>
-        <input type="password" id="login-password" autocomplete="current-password" />
+        <div class="pw-group">
+          <input type="password" id="login-password" autocomplete="current-password" />
+          <button type="button" class="pw-eye" data-target="login-password" title="Show/hide password">
+            <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="login-field" id="login-confirm-field" hidden>
+        <label for="login-password2">Confirm password</label>
+        <div class="pw-group">
+          <input type="password" id="login-password2" autocomplete="new-password" />
+          <button type="button" class="pw-eye" data-target="login-password2" title="Show/hide password">
+            <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
       </div>
       <button class="login-submit" id="login-submit">Sign in</button>
       <p class="login-error" id="login-error"></p>
@@ -182,15 +198,32 @@
       <button class="admin-btn" id="admin-close">Close</button>
     </div>
     <div class="admin-body">
+
+      <!-- Create user -->
       <div class="admin-section">
-        <h3>Users</h3>
+        <h3>Create User</h3>
         <button class="admin-btn" id="admin-add-user-btn" style="align-self:flex-start;">+ Add user</button>
         <div id="admin-add-user-form" hidden class="admin-form">
           <label>Username
             <input type="text" id="aauf-username" autocapitalize="none" spellcheck="false" />
           </label>
           <label>Password
-            <input type="password" id="aauf-password" autocomplete="new-password" />
+            <div class="pw-group">
+              <input type="password" id="aauf-password" autocomplete="new-password" />
+              <button type="button" class="pw-eye" data-target="aauf-password" title="Show/hide password">
+                <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+          </label>
+          <label>Confirm password
+            <div class="pw-group">
+              <input type="password" id="aauf-password2" autocomplete="new-password" />
+              <button type="button" class="pw-eye" data-target="aauf-password2" title="Show/hide password">
+                <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
           </label>
           <label>Role
             <select id="aauf-role">
@@ -199,7 +232,7 @@
             </select>
           </label>
           <label>Folder access
-            <div class="folder-checks" id="aauf-folders"></div>
+            <div class="folder-tree" id="aauf-folders"></div>
           </label>
           <div class="admin-form-actions">
             <button class="btn-cancel" id="aauf-cancel">Cancel</button>
@@ -207,11 +240,34 @@
           </div>
           <p class="login-error" id="aauf-error"></p>
         </div>
-        <div id="admin-user-list"></div>
+      </div>
+
+      <!-- Edit user -->
+      <div class="admin-section">
+        <h3>Edit User</h3>
+        <label style="font-size:13px;color:var(--text-muted);">Select user
+          <select id="aeuf-user-select" class="admin-select">
+            <option value="">— choose a user —</option>
+          </select>
+        </label>
         <div id="admin-edit-user-form" hidden class="admin-form">
-          <div id="aeuf-username-display" style="font-size:13px;color:var(--text-muted);"></div>
-          <label>New password (leave blank to keep)
-            <input type="password" id="aeuf-password" autocomplete="new-password" placeholder="(unchanged)" />
+          <label>New password <span style="color:var(--text-muted);font-weight:normal;">(leave blank to keep)</span>
+            <div class="pw-group">
+              <input type="password" id="aeuf-password" autocomplete="new-password" placeholder="(unchanged)" />
+              <button type="button" class="pw-eye" data-target="aeuf-password" title="Show/hide password">
+                <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+          </label>
+          <label>Confirm new password
+            <div class="pw-group">
+              <input type="password" id="aeuf-password2" autocomplete="new-password" placeholder="(unchanged)" />
+              <button type="button" class="pw-eye" data-target="aeuf-password2" title="Show/hide password">
+                <svg class="eye-show" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-hide" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
           </label>
           <label>Role
             <select id="aeuf-role">
@@ -220,7 +276,7 @@
             </select>
           </label>
           <label>Folder access
-            <div class="folder-checks" id="aeuf-folders"></div>
+            <div class="folder-tree" id="aeuf-folders"></div>
           </label>
           <div class="admin-form-actions">
             <button class="btn-cancel" id="aeuf-cancel">Cancel</button>
@@ -229,6 +285,13 @@
           <p class="login-error" id="aeuf-error"></p>
         </div>
       </div>
+
+      <!-- User list -->
+      <div class="admin-section">
+        <h3>All Users</h3>
+        <div id="admin-user-list"></div>
+      </div>
+
     </div>
   </div>
 

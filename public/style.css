@@ -1063,6 +1063,29 @@ input[type=range]::-moz-range-thumb {
 .folder-checks { display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto; }
 .folder-check { display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; }
 .folder-check input[type=checkbox] { accent-color:var(--accent); }
+
+/* ── Password group (input + eye toggle) ── */
+.pw-group { display:flex; align-items:stretch; gap:0; }
+.pw-group input { flex:1; border-radius:6px 0 0 6px !important; }
+.pw-eye { background:var(--surface); border:1px solid var(--border); border-left:none; color:var(--text-muted); border-radius:0 6px 6px 0; padding:0 10px; cursor:pointer; display:flex; align-items:center; flex-shrink:0; transition:color .12s; }
+.pw-eye:hover { color:var(--text); }
+
+/* ── Admin select (user dropdown in edit section) ── */
+.admin-select { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; width:100%; margin-top:4px; }
+.admin-select:focus { border-color:var(--accent); }
+
+/* ── Folder tree ── */
+.folder-tree { max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:6px 8px; background:var(--bg); }
+.folder-tree::-webkit-scrollbar { width:4px; }
+.folder-tree::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+.ftree-node { }
+.ftree-children { padding-left:18px; }
+.ftree-row { display:flex; align-items:center; gap:4px; padding:2px 0; }
+.ftree-expand { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:9px; width:14px; text-align:center; flex-shrink:0; padding:0; line-height:1; }
+.ftree-expand:hover { color:var(--text); }
+.ftree-label { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; user-select:none; }
+.ftree-label input[type=checkbox] { accent-color:var(--accent); flex-shrink:0; }
+.ftree-loading { font-size:12px; color:var(--text-muted); padding:4px 2px; }
 .admin-form-actions { display:flex; gap:8px; justify-content:flex-end; }
 .admin-form-actions button { padding:7px 16px; border-radius:6px; border:1px solid var(--border); cursor:pointer; font-size:13px; }
 .btn-primary { background:var(--accent); color:#000; border-color:var(--accent) !important; font-weight:600; }

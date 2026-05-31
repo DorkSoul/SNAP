@@ -1640,12 +1640,14 @@ window.addEventListener('popstate', e => {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 const Auth = (() => {
-  const overlay    = document.getElementById('login-overlay');
-  const subtitle   = document.getElementById('login-subtitle');
-  const userInput  = document.getElementById('login-username');
-  const passInput  = document.getElementById('login-password');
-  const submitBtn  = document.getElementById('login-submit');
-  const errorEl    = document.getElementById('login-error');
+  const overlay      = document.getElementById('login-overlay');
+  const subtitle     = document.getElementById('login-subtitle');
+  const userInput    = document.getElementById('login-username');
+  const passInput    = document.getElementById('login-password');
+  const passConfirmField = document.getElementById('login-confirm-field');
+  const passConfirm  = document.getElementById('login-password2');
+  const submitBtn    = document.getElementById('login-submit');
+  const errorEl      = document.getElementById('login-error');
 
   let _user = null;
   let _isSetup = false;
@@ -1656,6 +1658,8 @@ const Auth = (() => {
     _isSetup = isSetup;
     subtitle.textContent = isSetup ? 'Create your admin account to get started.' : '';
     submitBtn.textContent = isSetup ? 'Create account' : 'Sign in';
+    passConfirmField.hidden = !isSetup;
+    passConfirm.value = '';
     errorEl.textContent = '';
     overlay.hidden = false;
   }
@@ -1667,6 +1671,7 @@ const Auth = (() => {
     const password = passInput.value;
     errorEl.textContent = '';
     if (!username || !password) { errorEl.textContent = 'Enter username and password.'; return; }
+    if (_isSetup && password !== passConfirm.value) { errorEl.textContent = 'Passwords do not match.'; return; }
     submitBtn.disabled = true;
     try {
       const endpoint = _isSetup ? '/api/auth/setup' : '/api/auth/login';
@@ -1688,7 +1693,7 @@ const Auth = (() => {
   }
 
   submitBtn.addEventListener('click', submit);
-  [userInput, passInput].forEach(el => {
+  [userInput, passInput, passConfirm].forEach(el => {
     el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
   });
 
@@ -2128,65 +2133,123 @@ const Playlists = (() => {
 // ── Admin Panel ───────────────────────────────────────────────────────────────
 
 const AdminPanel = (() => {
-  const panel       = document.getElementById('admin-panel');
-  const closeBtn    = document.getElementById('admin-close');
-  const userListEl  = document.getElementById('admin-user-list');
-  const addUserBtn  = document.getElementById('admin-add-user-btn');
-  const addForm     = document.getElementById('admin-add-user-form');
-  const editForm    = document.getElementById('admin-edit-user-form');
+  const panel        = document.getElementById('admin-panel');
+  const closeBtn     = document.getElementById('admin-close');
+  const userListEl   = document.getElementById('admin-user-list');
+  const addUserBtn   = document.getElementById('admin-add-user-btn');
+  const addForm      = document.getElementById('admin-add-user-form');
+  const editForm     = document.getElementById('admin-edit-user-form');
+  const aeufSelect   = document.getElementById('aeuf-user-select');
 
   // Add form fields
-  const aaufUser    = document.getElementById('aauf-username');
-  const aaufPass    = document.getElementById('aauf-password');
-  const aaufRole    = document.getElementById('aauf-role');
+  const aaufUser  = document.getElementById('aauf-username');
+  const aaufPass  = document.getElementById('aauf-password');
+  const aaufPass2 = document.getElementById('aauf-password2');
+  const aaufRole  = document.getElementById('aauf-role');
   const aaufFolders = document.getElementById('aauf-folders');
-  const aaufErr     = document.getElementById('aauf-error');
-  const aaufCancel  = document.getElementById('aauf-cancel');
-  const aaufSubmit  = document.getElementById('aauf-submit');
+  const aaufErr   = document.getElementById('aauf-error');
+  const aaufCancel = document.getElementById('aauf-cancel');
+  const aaufSubmit = document.getElementById('aauf-submit');
 
   // Edit form fields
-  const aeufLabel   = document.getElementById('aeuf-username-display');
-  const aeufPass    = document.getElementById('aeuf-password');
-  const aeufRole    = document.getElementById('aeuf-role');
+  const aeufPass  = document.getElementById('aeuf-password');
+  const aeufPass2 = document.getElementById('aeuf-password2');
+  const aeufRole  = document.getElementById('aeuf-role');
   const aeufFolders = document.getElementById('aeuf-folders');
-  const aeufErr     = document.getElementById('aeuf-error');
-  const aeufCancel  = document.getElementById('aeuf-cancel');
-  const aeufSubmit  = document.getElementById('aeuf-submit');
+  const aeufErr   = document.getElementById('aeuf-error');
+  const aeufCancel = document.getElementById('aeuf-cancel');
+  const aeufSubmit = document.getElementById('aeuf-submit');
 
   let _users = [];
-  let _topDirs = [];
   let _editUserId = null;
 
-  async function fetchTopDirs() {
+  // ── Folder tree ──────────────────────────────────────────────────────────────
+
+  function buildTreeNode(name, dirPath, checked) {
+    const node = document.createElement('div');
+    node.className = 'ftree-node';
+
+    const row = document.createElement('div');
+    row.className = 'ftree-row';
+
+    const expander = document.createElement('button');
+    expander.type = 'button';
+    expander.className = 'ftree-expand';
+    expander.textContent = '▶';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = dirPath;
+    cb.checked = checked.some(c => c === dirPath || dirPath.startsWith(c + '/'));
+
+    const lbl = document.createElement('label');
+    lbl.className = 'ftree-label';
+    lbl.append(cb, document.createTextNode(' ' + name));
+
+    row.append(expander, lbl);
+    node.appendChild(row);
+
+    const childWrap = document.createElement('div');
+    childWrap.className = 'ftree-children';
+    childWrap.hidden = true;
+    node.appendChild(childWrap);
+
+    let loaded = false;
+    expander.addEventListener('click', async () => {
+      if (!loaded) {
+        childWrap.innerHTML = '<div class="ftree-loading">Loading…</div>';
+        childWrap.hidden = false;
+        expander.textContent = '▼';
+        try {
+          const res = await fetch(`/api/browse?path=${encodeURIComponent(dirPath)}`);
+          const data = await res.json();
+          const subdirs = (data.items || []).filter(i => i.type === 'dir');
+          childWrap.innerHTML = '';
+          if (subdirs.length === 0) {
+            expander.style.visibility = 'hidden';
+          } else {
+            for (const sub of subdirs) {
+              childWrap.appendChild(buildTreeNode(sub.name, sub.path, checked));
+            }
+          }
+        } catch {
+          childWrap.innerHTML = '<div class="ftree-loading">Error loading</div>';
+        }
+        loaded = true;
+      } else {
+        childWrap.hidden = !childWrap.hidden;
+        expander.textContent = childWrap.hidden ? '▶' : '▼';
+      }
+    });
+
+    return node;
+  }
+
+  async function renderFolderTree(container, checked) {
+    container.innerHTML = '<div class="ftree-loading">Loading folders…</div>';
     try {
       const res = await fetch('/api/browse?path=');
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error();
       const data = await res.json();
-      return data.items.filter(i => i.type === 'dir').map(i => i.name);
-    } catch { return []; }
-  }
-
-  function renderFolderChecks(container, topDirs, checked) {
-    container.innerHTML = '';
-    if (topDirs.length === 0) {
-      container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">No folders found</span>';
-      return;
-    }
-    for (const dir of topDirs) {
-      const lbl = document.createElement('label');
-      lbl.className = 'folder-check';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = dir;
-      cb.checked = checked.includes(dir);
-      lbl.append(cb, document.createTextNode(dir));
-      container.appendChild(lbl);
+      const dirs = (data.items || []).filter(i => i.type === 'dir');
+      container.innerHTML = '';
+      if (dirs.length === 0) {
+        container.innerHTML = '<span class="ftree-loading">No folders found in media root</span>';
+        return;
+      }
+      for (const dir of dirs) {
+        container.appendChild(buildTreeNode(dir.name, dir.path, checked));
+      }
+    } catch {
+      container.innerHTML = '<span class="ftree-loading">Could not load folders</span>';
     }
   }
 
-  function getCheckedFolders(container) {
+  function getCheckedPaths(container) {
     return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
   }
+
+  // ── Users ────────────────────────────────────────────────────────────────────
 
   async function loadUsers() {
     try {
@@ -2196,13 +2259,25 @@ const AdminPanel = (() => {
     } catch {}
   }
 
+  function populateEditSelect() {
+    const currentId = aeufSelect.value;
+    aeufSelect.innerHTML = '<option value="">— choose a user —</option>';
+    for (const u of _users) {
+      const opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.username + (u.role === 'admin' ? ' (admin)' : '');
+      aeufSelect.appendChild(opt);
+    }
+    aeufSelect.value = currentId;
+  }
+
   function renderUsers() {
     userListEl.innerHTML = '';
+    const currentUser = Auth.currentUser();
     if (_users.length === 0) {
-      userListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No users</div>';
+      userListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No users yet</div>';
       return;
     }
-    const currentUser = Auth.currentUser();
     for (const u of _users) {
       const row = document.createElement('div');
       row.className = 'user-row';
@@ -2212,18 +2287,15 @@ const AdminPanel = (() => {
       const roleEl = document.createElement('span');
       roleEl.className = 'user-row-role';
       roleEl.textContent = u.role;
-      const editBtn = document.createElement('button');
-      editBtn.className = 'admin-btn';
-      editBtn.textContent = 'Edit';
-      editBtn.addEventListener('click', () => openEditForm(u));
       const delBtn = document.createElement('button');
       delBtn.className = 'admin-btn danger';
       delBtn.textContent = 'Delete';
       delBtn.disabled = u.id === currentUser?.id;
       delBtn.addEventListener('click', () => deleteUser(u.id));
-      row.append(nameEl, roleEl, editBtn, delBtn);
+      row.append(nameEl, roleEl, delBtn);
       userListEl.appendChild(row);
     }
+    populateEditSelect();
   }
 
   async function deleteUser(id) {
@@ -2233,41 +2305,35 @@ const AdminPanel = (() => {
       if (!res.ok) { const d = await res.json(); alert(d.error); return; }
       await loadUsers();
       renderUsers();
+      if (_editUserId === id) { editForm.hidden = true; _editUserId = null; }
     } catch {}
   }
 
-  function openAddForm() {
-    editForm.hidden = true;
-    addForm.hidden = false;
-    aaufUser.value = '';
-    aaufPass.value = '';
-    aaufRole.value = 'user';
-    aaufErr.textContent = '';
-    renderFolderChecks(aaufFolders, _topDirs, []);
-    aaufUser.focus();
-  }
+  // ── Add form ─────────────────────────────────────────────────────────────────
 
-  function openEditForm(u) {
-    addForm.hidden = true;
-    _editUserId = u.id;
-    aeufLabel.textContent = `Editing: ${u.username}`;
-    aeufPass.value = '';
-    aeufRole.value = u.role;
-    aeufErr.textContent = '';
-    renderFolderChecks(aeufFolders, _topDirs, u.allowedPaths || []);
-    editForm.hidden = false;
-  }
+  addUserBtn.addEventListener('click', () => {
+    addForm.hidden = !addForm.hidden;
+    if (!addForm.hidden) {
+      aaufUser.value = '';
+      aaufPass.value = '';
+      aaufPass2.value = '';
+      aaufRole.value = 'user';
+      aaufErr.textContent = '';
+      renderFolderTree(aaufFolders, []);
+      aaufUser.focus();
+    }
+  });
 
-  addUserBtn.addEventListener('click', openAddForm);
   aaufCancel.addEventListener('click', () => { addForm.hidden = true; });
 
   aaufSubmit.addEventListener('click', async () => {
     aaufErr.textContent = '';
+    if (aaufPass.value !== aaufPass2.value) { aaufErr.textContent = 'Passwords do not match.'; return; }
     const body = {
       username: aaufUser.value.trim(),
       password: aaufPass.value,
       role: aaufRole.value,
-      allowedPaths: getCheckedFolders(aaufFolders),
+      allowedPaths: getCheckedPaths(aaufFolders),
     };
     try {
       const res = await fetch('/api/admin/users', {
@@ -2283,13 +2349,36 @@ const AdminPanel = (() => {
     } catch { aaufErr.textContent = 'Network error'; }
   });
 
-  aeufCancel.addEventListener('click', () => { editForm.hidden = true; _editUserId = null; });
+  // ── Edit form (driven by user select dropdown) ────────────────────────────────
+
+  aeufSelect.addEventListener('change', async () => {
+    const uid = aeufSelect.value;
+    if (!uid) { editForm.hidden = true; _editUserId = null; return; }
+    const u = _users.find(u => u.id === uid);
+    if (!u) return;
+    _editUserId = uid;
+    aeufPass.value = '';
+    aeufPass2.value = '';
+    aeufRole.value = u.role;
+    aeufErr.textContent = '';
+    editForm.hidden = false;
+    await renderFolderTree(aeufFolders, u.allowedPaths || []);
+  });
+
+  aeufCancel.addEventListener('click', () => {
+    editForm.hidden = true;
+    _editUserId = null;
+    aeufSelect.value = '';
+  });
 
   aeufSubmit.addEventListener('click', async () => {
     aeufErr.textContent = '';
+    if (aeufPass.value && aeufPass.value !== aeufPass2.value) {
+      aeufErr.textContent = 'Passwords do not match.'; return;
+    }
     const body = {
       role: aeufRole.value,
-      allowedPaths: getCheckedFolders(aeufFolders),
+      allowedPaths: getCheckedPaths(aeufFolders),
     };
     if (aeufPass.value) body.password = aeufPass.value;
     try {
@@ -2302,6 +2391,7 @@ const AdminPanel = (() => {
       if (!res.ok) { aeufErr.textContent = data.error || 'Error'; return; }
       editForm.hidden = true;
       _editUserId = null;
+      aeufSelect.value = '';
       await loadUsers();
       renderUsers();
     } catch { aeufErr.textContent = 'Network error'; }
@@ -2310,7 +2400,6 @@ const AdminPanel = (() => {
   closeBtn.addEventListener('click', close);
 
   async function open() {
-    _topDirs = await fetchTopDirs();
     await loadUsers();
     renderUsers();
     addForm.hidden = true;
@@ -2377,6 +2466,19 @@ document.getElementById('qm-add-playlist').addEventListener('click', () => {
   const paths = QueueModal.getPendingPaths ? QueueModal.getPendingPaths() : [];
   document.getElementById('queue-modal').hidden = true;
   Playlists.showAddModal(paths);
+});
+
+// ── Password eye-toggle (global, works on any .pw-eye button) ────────────────
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.pw-eye');
+  if (!btn) return;
+  const input = document.getElementById(btn.dataset.target);
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.querySelector('.eye-show').hidden = show;
+  btn.querySelector('.eye-hide').hidden = !show;
 });
 
 // ── App startup ───────────────────────────────────────────────────────────────
