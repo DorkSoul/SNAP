@@ -761,13 +761,45 @@ const Player = (() => {
     startQueue, addToEnd, addAfterCurrent, jumpTo,
     playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue,
     isCurrentVideo: () => currentIsVideo,
+    getDuration:    () => isFinite(med.duration) ? med.duration : 0,
+    getPosition:    () => isFinite(med.currentTime) ? med.currentTime : 0,
+    seekTo: (pos) => {
+      if (isFinite(med.duration)) med.currentTime = Math.max(0, Math.min(med.duration, pos));
+      else med.currentTime = Math.max(0, pos);
+    },
     skip: (secs) => { med.currentTime = Math.max(0, Math.min(isFinite(med.duration) ? med.duration : Infinity, med.currentTime + secs)); },
     syncQueue(paths, idx) {
       if (!Array.isArray(paths) || !paths.length) return;
       queue = [...paths];
       originalQueue = null;
       queueIndex = typeof idx === 'number' ? Math.max(0, Math.min(idx, paths.length - 1)) : 0;
-      loadTrack(queue[queueIndex], false);
+      const path = queue[queueIndex];
+      if (path === currentPath) return;
+      currentPath = path;
+      lastGoodPosition = 0;
+
+      // Non-active device: show artwork display only — never load video or audio stream
+      if (currentIsVideo) setMediaMode(false); // switch away from video mode to show art
+      syncArt(path);
+
+      const name = path.split('/').pop().replace(/\.[^.]+$/, '');
+      fsTitle.textContent  = name;
+      fsArtist.textContent = '';
+      fetch(`/api/metadata?path=${enc(path)}`)
+        .then(r => r.json())
+        .then(meta => {
+          fsTitle.textContent  = meta.title || name;
+          fsArtist.textContent = meta.artist || '';
+          MediaSessionManager.update({ title: meta.title || name, artist: meta.artist || '', artworkPath: path });
+        })
+        .catch(() => {
+          MediaSessionManager.update({ title: name, artist: '', artworkPath: path });
+        });
+
+      FileBrowser.setPlaying(path);
+      QueuePanel.refresh();
+      playerBar.hidden = false;
+      document.body.classList.remove('player-hidden');
     },
     syncPositionDisplay(pos, totalDur) {
       if (!isFinite(pos) || pos < 0) return;
@@ -1824,12 +1856,11 @@ const SyncManager = (() => {
   }
 
   function getPlayerState() {
-    const audio = document.getElementById('audio');
     return {
       queue:    Player.getQueue(),
       index:    Player.getQueueIndex(),
-      position: isFinite(audio.currentTime) ? audio.currentTime : 0,
-      duration: isFinite(audio.duration)    ? audio.duration    : 0,
+      position: Player.getPosition(),
+      duration: Player.getDuration(),
       sortKey:  localStorage.getItem('snap_sort_key') || 'name',
       sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
       deviceId: myDeviceId,
@@ -1865,8 +1896,7 @@ const SyncManager = (() => {
       case 'prev':      Player.playPrev();  break;
       case 'skip':      Player.skip(cmd.data?.seconds || 0); break;
       case 'seek': {
-        const e = document.getElementById('audio');
-        if (cmd.data?.seekTo != null) e.currentTime = cmd.data.seekTo;
+        if (cmd.data?.seekTo != null) Player.seekTo(cmd.data.seekTo);
         break;
       }
       case 'loadqueue': {
@@ -1973,8 +2003,7 @@ const SyncManager = (() => {
   ['seek-bar', 'fs-seek-bar'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', e => {
       if (!hasActiveDevice()) return;
-      const audio = document.getElementById('audio');
-      const dur = isFinite(audio.duration) ? audio.duration : (serverState?.duration || 0);
+      const dur = serverState?.duration || 0;
       if (dur > 0) sendCommand('seek', { seekTo: (parseFloat(e.target.value) / 100) * dur });
     });
   });
