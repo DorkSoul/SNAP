@@ -962,7 +962,6 @@ input[type=range]::-moz-range-thumb {
   height: 100%;
   object-fit: contain;
   background: #000;
-  display: block;
 }
 
 /* Controls overlay at bottom in video mode */

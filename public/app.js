@@ -241,17 +241,17 @@ const Player = (() => {
     med = isVideo ? videoEl : audioEl;
     if (isVideo) {
       audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load();
-      fsArtImg.hidden = true;
-      fsArtFallback.hidden = true;
-      videoEl.hidden = false;
+      fsArtImg.style.display = 'none';
+      fsArtFallback.style.display = 'none';
+      videoEl.style.display = 'block';
       playerArtBtn.classList.add('video-mode');
       fsBtnRotate.hidden = false;
       document.getElementById('fullscreen-player').classList.add('video-mode');
     } else {
       videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load();
-      videoEl.hidden = true;
-      fsArtImg.hidden = false;
-      fsArtFallback.hidden = false;
+      videoEl.style.display = 'none';
+      fsArtImg.style.display = '';
+      fsArtFallback.style.display = '';
       playerArtBtn.classList.remove('video-mode');
       fsBtnRotate.hidden = true;
       document.getElementById('fullscreen-player').classList.remove('video-mode');
