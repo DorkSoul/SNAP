@@ -1916,7 +1916,7 @@ const SyncManager = (() => {
 
   function startPolling() {
     if (pollTimer) return;
-    pollTimer = setInterval(pollAndSync, 3000);
+    pollTimer = setInterval(pollAndSync, 1000);
   }
 
   function stopPolling() {
