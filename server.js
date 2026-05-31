@@ -282,6 +282,40 @@ app.delete('/api/playlists/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Search ────────────────────────────────────────────────────────────────────
+app.get('/api/search', requireAuth, (req, res) => {
+  const q = (req.query.q || '').trim().toLowerCase();
+  if (q.length < 2) return res.json([]);
+
+  const results = [];
+  const LIMIT = 200;
+
+  function walk(relPath) {
+    if (results.length >= LIMIT) return;
+    let entries;
+    try { entries = fs.readdirSync(path.join(MEDIA_ROOT, relPath), { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (results.length >= LIMIT) return;
+      const rel = relPath ? path.join(relPath, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        if (!canAccess(req.user, rel)) continue;
+        walk(rel);
+      } else {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!AUDIO_EXTS.has(ext) && !VIDEO_EXTS.has(ext)) continue;
+        if (!canAccess(req.user, relPath || '')) continue;
+        if (!entry.name.toLowerCase().includes(q)) continue;
+        let size = 0, mtime = 0;
+        try { const s = fs.statSync(path.join(MEDIA_ROOT, rel)); size = s.size; mtime = s.mtimeMs; } catch {}
+        results.push({ name: entry.name, type: 'file', path: rel, size, ext, mtime });
+      }
+    }
+  }
+
+  walk('');
+  res.json(results);
+});
+
 // ── Browse directory ──────────────────────────────────────────────────────────
 app.get('/api/browse', requireAuth, (req, res) => {
   const relPath = req.query.path || '';

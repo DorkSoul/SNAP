@@ -1166,10 +1166,12 @@ const FileBrowser = (() => {
   const selectAddQueue = document.getElementById('select-add-queue');
   const selectCancel   = document.getElementById('select-cancel');
 
-  let currentPath  = '';
-  let currentItems = [];
-  let playingPath  = '';
-  let searchQuery  = '';
+  let currentPath   = '';
+  let currentItems  = [];
+  let playingPath   = '';
+  let searchQuery   = '';
+  let searchResults = null; // non-null when a full-library search is active
+  let searchDebounce = null;
   let sortKey = localStorage.getItem('snap_sort_key') || 'name';
   let sortDir = localStorage.getItem('snap_sort_dir') || 'asc';
 
@@ -1300,9 +1302,10 @@ const FileBrowser = (() => {
   function navigate(p, push = true) {
     if (selectMode) exitSelectMode();
     if (push) history.pushState({ type: 'browse', path: p }, '');
-    currentPath  = p;
+    currentPath   = p;
     searchEl.value = '';
-    searchQuery  = '';
+    searchQuery   = '';
+    searchResults = null;
     load();
   }
 
@@ -1328,12 +1331,28 @@ const FileBrowser = (() => {
 
   function refresh() { render(); }
 
-  function render() {
-    let items = currentItems;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(i => i.name.toLowerCase().includes(q));
+  function renderSearchResults() {
+    if (searchResults.length === 0) {
+      browserEl.innerHTML = '<div class="browser-empty">No results found</div>';
+      return;
     }
+    const isGrid = ViewToggle.get() === 'grid';
+    const container = document.createElement('div');
+    container.className = isGrid ? 'grid-view' : 'list-view';
+    for (const item of searchResults) {
+      const dir = item.path.includes('/') ? item.path.split('/').slice(0, -1).join('/') : '';
+      container.appendChild(isGrid ? makeGridItem(item, dir) : makeListItem(item, dir));
+    }
+    browserEl.innerHTML = '';
+    browserEl.appendChild(container);
+  }
+
+  function render() {
+    if (searchResults !== null) {
+      renderSearchResults();
+      return;
+    }
+    let items = currentItems;
     if (items.length === 0) {
       browserEl.innerHTML = '<div class="browser-empty">No files found</div>';
       return;
@@ -1429,7 +1448,7 @@ const FileBrowser = (() => {
     }
   }
 
-  function makeListItem(item) {
+  function makeListItem(item, pathSubtitle) {
     const el = document.createElement('div');
     el.className = 'list-item' +
       (item.name.startsWith('.') ? ' hidden-entry' : '') +
@@ -1465,7 +1484,14 @@ const FileBrowser = (() => {
       meta.append(dur, sz);
     }
 
-    el.append(name, meta);
+    if (pathSubtitle !== undefined) {
+      const sub = document.createElement('span');
+      sub.className = 'list-path';
+      sub.textContent = pathSubtitle || '/';
+      el.append(name, sub, meta);
+    } else {
+      el.append(name, meta);
+    }
 
     if (item.type === 'dir') {
       el.addEventListener('click', () => navigate(item.path));
@@ -1483,7 +1509,7 @@ const FileBrowser = (() => {
     return el;
   }
 
-  function makeGridItem(item) {
+  function makeGridItem(item, pathSubtitle) {
     const el = document.createElement('div');
     el.className = 'grid-item' +
       (item.name.startsWith('.') ? ' hidden-entry' : '') +
@@ -1508,7 +1534,14 @@ const FileBrowser = (() => {
     name.className = 'grid-name';
     name.textContent = item.name;
 
-    el.append(thumb, name);
+    if (pathSubtitle !== undefined) {
+      const sub = document.createElement('span');
+      sub.className = 'grid-path';
+      sub.textContent = pathSubtitle || '/';
+      el.append(thumb, name, sub);
+    } else {
+      el.append(thumb, name);
+    }
 
     if (item.type === 'dir') {
       el.addEventListener('click', () => navigate(item.path));
@@ -1573,8 +1606,26 @@ const FileBrowser = (() => {
   }
 
   searchEl.addEventListener('input', () => {
-    searchQuery = searchEl.value.trim();
-    render();
+    const q = searchEl.value.trim();
+    searchQuery = q;
+    clearTimeout(searchDebounce);
+    if (q.length < 2) {
+      searchResults = null;
+      render();
+      return;
+    }
+    browserEl.innerHTML = '<div class="browser-empty">Searching…</div>';
+    searchDebounce = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${enc(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (searchEl.value.trim() === q) { // ignore stale responses
+          searchResults = data;
+          render();
+        }
+      } catch {}
+    }, 300);
   });
 
   history.replaceState({ type: 'browse', path: '' }, '');
