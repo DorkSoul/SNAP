@@ -168,6 +168,7 @@ const Player = (() => {
   let repeatMode    = 'off'; // 'off' | 'queue' | 'one'
   let isSeeking     = false;
   let currentPath   = null;
+  let _pendingRestorePosition = 0; // position to seek to on first play after restore
 
   // ── Persistence ──
   const STORAGE_KEY = 'snap_state';
@@ -312,7 +313,22 @@ const Player = (() => {
   // ── Controls ──
   function playPause() {
     if (med.paused) {
-      med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+      if (!med.src && currentPath) {
+        // First play after page restore — load the track then seek to saved position
+        const pos = _pendingRestorePosition;
+        _pendingRestorePosition = 0;
+        loadTrack(currentPath, false).then(() => {
+          const doPlay = () => med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+          if (pos > 0) {
+            if (med.readyState >= 1) { med.currentTime = pos; syncSeek(); doPlay(); }
+            else med.addEventListener('loadedmetadata', () => { med.currentTime = pos; syncSeek(); doPlay(); }, { once: true });
+          } else {
+            doPlay();
+          }
+        });
+      } else {
+        med.play().then(() => { syncPlayIcon(true); WakeLock.acquire(); }).catch(() => {});
+      }
     } else {
       med.pause();
       syncPlayIcon(false);
@@ -594,18 +610,10 @@ const Player = (() => {
       syncShuffleIcon();
       syncRepeatIcon();
 
-      const savedPos = s.position || 0;
+      _pendingRestorePosition = s.position || 0;
       const restoreIsVideo = isVideoPath(currentPath);
       if (restoreIsVideo !== currentIsVideo) setMediaMode(restoreIsVideo);
-      med.src = `/api/stream?path=${enc(currentPath)}`;
-      med.load();
-
-      if (savedPos > 0) {
-        med.addEventListener('loadedmetadata', () => {
-          med.currentTime = savedPos;
-          syncSeek();
-        }, { once: true });
-      }
+      // Don't load media src here — deferred to first play to avoid browser "Continue playing" prompt
 
       if (!currentIsVideo) syncArt(currentPath);
 
@@ -752,8 +760,62 @@ const Player = (() => {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
     playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue,
-    isCurrentVideo: () => currentIsVideo,
+    isCurrentVideo:  () => currentIsVideo,
+    getDuration:     () => isFinite(med.duration) ? med.duration : 0,
+    getPosition:     () => isFinite(med.currentTime) ? med.currentTime : 0,
+    syncPlayState:   (playing) => syncPlayIcon(playing),
+    seekTo: (pos) => {
+      if (isFinite(med.duration)) med.currentTime = Math.max(0, Math.min(med.duration, pos));
+      else med.currentTime = Math.max(0, pos);
+    },
     skip: (secs) => { med.currentTime = Math.max(0, Math.min(isFinite(med.duration) ? med.duration : Infinity, med.currentTime + secs)); },
+    syncQueue(paths, idx) {
+      if (!Array.isArray(paths) || !paths.length) return;
+      queue = [...paths];
+      originalQueue = null;
+      queueIndex = typeof idx === 'number' ? Math.max(0, Math.min(idx, paths.length - 1)) : 0;
+      const path = queue[queueIndex];
+      if (path === currentPath) return;
+      currentPath = path;
+      lastGoodPosition = 0;
+
+      // Non-active device: show artwork display only — never load video or audio stream
+      if (currentIsVideo) setMediaMode(false); // switch away from video mode to show art
+      syncArt(path);
+
+      const name = path.split('/').pop().replace(/\.[^.]+$/, '');
+      fsTitle.textContent  = name;
+      fsArtist.textContent = '';
+      fetch(`/api/metadata?path=${enc(path)}`)
+        .then(r => r.json())
+        .then(meta => {
+          fsTitle.textContent  = meta.title || name;
+          fsArtist.textContent = meta.artist || '';
+          MediaSessionManager.update({ title: meta.title || name, artist: meta.artist || '', artworkPath: path });
+        })
+        .catch(() => {
+          MediaSessionManager.update({ title: name, artist: '', artworkPath: path });
+        });
+
+      FileBrowser.setPlaying(path);
+      QueuePanel.refresh();
+      playerBar.hidden = false;
+      document.body.classList.remove('player-hidden');
+    },
+    syncPositionDisplay(pos, totalDur) {
+      if (!isFinite(pos) || pos < 0) return;
+      const dur = (totalDur > 0 && isFinite(totalDur)) ? totalDur : (isFinite(med.duration) ? med.duration : 0);
+      const pct = dur > 0 ? (pos / dur) * 100 : 0;
+      if (!isSeeking) [seekBar, fsSeekBar].forEach(s => { s.value = pct; });
+      const curStr = formatTime(pos);
+      timeCurrent.textContent   = curStr;
+      fsTimeCurrent.textContent = curStr;
+      if (dur > 0) {
+        const totStr = formatTime(dur);
+        timeTotal.textContent   = totStr;
+        fsTimeTotal.textContent = totStr;
+      }
+    },
   };
 })();
 
@@ -807,7 +869,9 @@ const QueueModal = (() => {
   btnCancel.addEventListener('click', hide);
   overlay.addEventListener('click', e => { if (e.target === overlay) hide(); });
 
-  return { show };
+  function getPendingPaths() { return [...pendingPaths]; }
+
+  return { show, getPendingPaths };
 })();
 
 // ── Queue Panel ───────────────────────────────────────────────────────────────
@@ -1249,9 +1313,11 @@ const FileBrowser = (() => {
     let data;
     try {
       const res = await fetch(`/api/browse?path=${enc(currentPath)}`);
+      if (res.status === 401) return; // login overlay will appear via fetch interceptor
       if (!res.ok) throw new Error(res.statusText);
       data = await res.json();
     } catch (e) {
+      if (!document.getElementById('login-overlay').hidden) return;
       browserEl.innerHTML = `<div class="browser-empty">Error: ${e.message}</div>`;
       return;
     }
@@ -1516,7 +1582,9 @@ const FileBrowser = (() => {
 
   function reload() { load(); }
 
-  return { navigate, setPlaying, refresh, reload };
+  function getSelectedPaths() { return [...selectedPaths]; }
+
+  return { navigate, setPlaying, refresh, reload, getSelectedPaths };
 })();
 
 // Keep --player-h in sync with the actual rendered player bar height
@@ -1525,8 +1593,7 @@ new ResizeObserver(entries => {
   if (h > 0) document.documentElement.style.setProperty('--player-h', h + 'px');
 }).observe(document.getElementById('player-bar'));
 
-// Restore queue + position after all modules are initialised
-Player.restore();
+// Player.restore() is called in onReady() after auth
 if (!Player.isActive()) document.body.classList.add('player-hidden');
 
 // Keep the phone's WiFi radio alive via server-sent WebSocket pings.
@@ -1624,3 +1691,920 @@ window.addEventListener('popstate', e => {
     FileBrowser.navigate(state.path, false);
   }
 });
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+const Auth = (() => {
+  const overlay      = document.getElementById('login-overlay');
+  const subtitle     = document.getElementById('login-subtitle');
+  const userInput    = document.getElementById('login-username');
+  const passInput    = document.getElementById('login-password');
+  const passConfirmField = document.getElementById('login-confirm-field');
+  const passConfirm  = document.getElementById('login-password2');
+  const submitBtn    = document.getElementById('login-submit');
+  const errorEl      = document.getElementById('login-error');
+
+  let _user = null;
+  let _isSetup = false;
+
+  function currentUser() { return _user; }
+
+  function showOverlay(isSetup) {
+    _isSetup = isSetup;
+    subtitle.textContent = isSetup ? 'Create your admin account to get started.' : '';
+    submitBtn.textContent = isSetup ? 'Create account' : 'Sign in';
+    passConfirmField.hidden = !isSetup;
+    passConfirm.value = '';
+    errorEl.textContent = '';
+    overlay.hidden = false;
+  }
+
+  function hideOverlay() { overlay.hidden = true; }
+
+  async function submit() {
+    const username = userInput.value.trim();
+    const password = passInput.value;
+    errorEl.textContent = '';
+    if (!username || !password) { errorEl.textContent = 'Enter username and password.'; return; }
+    if (_isSetup && password !== passConfirm.value) { errorEl.textContent = 'Passwords do not match.'; return; }
+    submitBtn.disabled = true;
+    try {
+      const endpoint = _isSetup ? '/api/auth/setup' : '/api/auth/login';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error || 'Login failed.'; return; }
+      _user = data;
+      hideOverlay();
+      onReady();
+    } catch (e) {
+      errorEl.textContent = 'Network error.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  submitBtn.addEventListener('click', submit);
+  [userInput, passInput, passConfirm].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  });
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+  }
+
+  async function init() {
+    try {
+      const setupRes = await fetch('/api/auth/setup-check');
+      const { needsSetup } = await setupRes.json();
+      if (needsSetup) { showOverlay(true); return; }
+
+      const meRes = await fetch('/api/auth/me');
+      if (meRes.ok) {
+        _user = await meRes.json();
+        hideOverlay();
+        onReady();
+      } else {
+        showOverlay(false);
+      }
+    } catch {
+      showOverlay(false);
+    }
+  }
+
+  // Intercept 401s globally
+  const _origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const res = await _origFetch(...args);
+    if (res.status === 401) {
+      const url = typeof args[0] === 'string' ? args[0] : args[0].url || '';
+      if (!url.includes('/api/auth/')) {
+        _user = null;
+        showOverlay(false);
+      }
+    }
+    return res;
+  };
+
+  return { init, logout, currentUser };
+})();
+
+// ── User menu ─────────────────────────────────────────────────────────────────
+
+const UserMenu = (() => {
+  const btn      = document.getElementById('user-menu-btn');
+  const label    = document.getElementById('user-menu-label');
+  const dropdown = document.getElementById('user-menu-dropdown');
+  const adminBtn = document.getElementById('user-menu-admin');
+  const logoutBtn= document.getElementById('user-menu-logout');
+
+  function setup(user) {
+    label.textContent = user.username;
+    adminBtn.hidden = user.role !== 'admin';
+  }
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    dropdown.hidden = !dropdown.hidden;
+  });
+
+  document.addEventListener('click', () => { dropdown.hidden = true; });
+  dropdown.addEventListener('click', e => e.stopPropagation());
+
+  adminBtn.addEventListener('click', () => { dropdown.hidden = true; AdminPanel.open(); });
+  logoutBtn.addEventListener('click', () => { Auth.logout(); });
+
+  return { setup };
+})();
+
+// ── SyncManager ───────────────────────────────────────────────────────────────
+
+const SyncManager = (() => {
+  const takeoverBanner  = document.getElementById('takeover-banner');
+  const takeoverBtn     = document.getElementById('takeover-btn');
+  const takeoverDismiss = document.getElementById('takeover-dismiss');
+  const fsTakeoverBtn   = document.getElementById('fs-btn-takeover');
+  const fsTakeoverRow   = document.getElementById('fs-takeover-row');
+
+  let myDeviceId = localStorage.getItem('snap_device_id');
+  if (!myDeviceId) {
+    myDeviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    localStorage.setItem('snap_device_id', myDeviceId);
+  }
+
+  let pollTimer    = null;
+  let serverState  = null;
+  let takeoverShown = false;
+
+  function isActiveDevice() {
+    return !serverState?.activeDeviceId || serverState.activeDeviceId === myDeviceId;
+  }
+
+  function hasActiveDevice() {
+    if (!serverState?.activeDeviceId || serverState.activeDeviceId === myDeviceId) return false;
+    return (Date.now() - (serverState.activeDeviceAt || 0)) < 5 * 60 * 1000;
+  }
+
+  function updateTakeoverBtn() {
+    if (fsTakeoverRow) fsTakeoverRow.hidden = isActiveDevice();
+  }
+
+  function getPlayerState() {
+    return {
+      queue:    Player.getQueue(),
+      index:    Player.getQueueIndex(),
+      position: Player.getPosition(),
+      duration: Player.getDuration(),
+      playing:  !Player.paused(),
+      sortKey:  localStorage.getItem('snap_sort_key') || 'name',
+      sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
+      deviceId: myDeviceId,
+    };
+  }
+
+  async function push(state) {
+    try {
+      await fetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state || getPlayerState()),
+      });
+    } catch {}
+  }
+
+  async function sendCommand(type, data) {
+    try {
+      await fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, data }),
+      });
+    } catch {}
+  }
+
+  function executeCommand(cmd) {
+    if (!cmd?.type) return;
+    if (Date.now() - (cmd.sentAt || 0) > 10000) return; // stale, ignore
+    switch (cmd.type) {
+      case 'playpause': Player.playPause(); break;
+      case 'next':      Player.playNext();  break;
+      case 'prev':      Player.playPrev();  break;
+      case 'skip':      Player.skip(cmd.data?.seconds || 0); break;
+      case 'seek': {
+        if (cmd.data?.seekTo != null) Player.seekTo(cmd.data.seekTo);
+        break;
+      }
+      case 'loadqueue': {
+        if (Array.isArray(cmd.data?.queue) && cmd.data.queue.length) {
+          Player.startQueue(cmd.data.queue, cmd.data.index ?? 0);
+        }
+        break;
+      }
+    }
+  }
+
+  async function pollAndSync() {
+    let res;
+    try { res = await fetch('/api/state'); } catch { return; }
+    if (!res?.ok) return;
+    const state = await res.json();
+    const prevActiveId = serverState?.activeDeviceId;
+    serverState = state;
+    updateTakeoverBtn();
+
+    if (isActiveDevice()) {
+      if (state.pendingCommand) {
+        // Execute command then always push to clear pendingCommand from server
+        executeCommand(state.pendingCommand);
+        setTimeout(() => push(), 200);
+      } else if (!Player.paused()) {
+        // Periodic position push so non-active devices stay in sync
+        push();
+      }
+    } else {
+      // Sync queue/track display from active device (no auto-play)
+      if (state.queue?.length > 0) {
+        const newPath = state.queue[state.index ?? 0];
+        if (newPath && newPath !== Player.getCurrentPath()) {
+          Player.syncQueue(state.queue, state.index);
+        }
+      }
+      // Sync playback position and play/pause icon
+      if (typeof state.position === 'number') {
+        Player.syncPositionDisplay(state.position, state.duration);
+      }
+      if (typeof state.playing === 'boolean') {
+        Player.syncPlayState(state.playing);
+      }
+      // If we just lost active status (another device took over), pause local audio
+      if (prevActiveId === myDeviceId && !Player.paused()) {
+        Player.playPause();
+      }
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollAndSync, 1000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // ── Takeover button handlers ──────────────────────────────────────────────────
+  function takeoverHere() {
+    if (!serverState) return;
+    // Claim active status before calling loadState so startQueue isn't redirected back
+    const snap = { ...serverState };
+    serverState = { ...serverState, activeDeviceId: myDeviceId };
+    updateTakeoverBtn();
+    takeoverBanner.hidden = true;
+    if (fsTakeoverRow) fsTakeoverRow.hidden = true;
+    Player.loadState({ queue: snap.queue, index: snap.index, position: snap.position });
+    push(); // notify server
+  }
+
+  function showTakeover() {
+    if (!takeoverShown) {
+      takeoverShown = true;
+      takeoverBanner.hidden = false;
+    }
+  }
+
+  takeoverBtn.addEventListener('click', () => { takeoverBanner.hidden = true; takeoverHere(); });
+  takeoverDismiss.addEventListener('click', () => { takeoverBanner.hidden = true; });
+  if (fsTakeoverBtn) fsTakeoverBtn.addEventListener('click', takeoverHere);
+
+  // ── Transport interception for non-active device ──────────────────────────────
+  // Capturing listeners fire before Player's bubble listeners on the same element.
+  function makeTransportGuard(type, data) {
+    return function(e) {
+      if (hasActiveDevice()) {
+        e.stopImmediatePropagation();
+        sendCommand(type, data);
+      }
+    };
+  }
+  ['btn-prev', 'fs-btn-prev'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('prev'), true);
+  });
+  ['btn-next', 'fs-btn-next'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('next'), true);
+  });
+  ['btn-play', 'fs-btn-play'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('playpause'), true);
+  });
+  document.getElementById('fs-btn-skip-back')?.addEventListener('click', makeTransportGuard('skip', { seconds: -30 }), true);
+  document.getElementById('fs-btn-skip-fwd')?.addEventListener('click', makeTransportGuard('skip', { seconds: 30 }), true);
+
+  // ── Seek bar interception for non-active device ───────────────────────────────
+  ['seek-bar', 'fs-seek-bar'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', e => {
+      if (!hasActiveDevice()) return;
+      const dur = serverState?.duration || 0;
+      if (dur > 0) sendCommand('seek', { seekTo: (parseFloat(e.target.value) / 100) * dur });
+    });
+  });
+
+  // ── Wire into audio events ────────────────────────────────────────────────────
+  document.getElementById('audio').addEventListener('play',  () => { startPolling(); push(); });
+  document.getElementById('audio').addEventListener('pause', () => { push(); });
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  async function init() {
+    let res;
+    try { res = await fetch('/api/state'); } catch { return; }
+    if (!res?.ok) return;
+    serverState = await res.json();
+    updateTakeoverBtn();
+
+    if (!serverState?.queue?.length || !serverState.activeDeviceAt) { startPolling(); return; }
+
+    const age = Date.now() - serverState.activeDeviceAt;
+    if (age > 30 * 60 * 1000) { startPolling(); return; }
+
+    // Silently load queue/track on all devices
+    Player.syncQueue(serverState.queue, serverState.index);
+
+    if (serverState.activeDeviceId !== myDeviceId) {
+      // Another device is active — show takeover banner
+      if (!takeoverShown) {
+        takeoverShown = true;
+        takeoverBanner.hidden = false;
+      }
+    }
+    startPolling();
+  }
+
+  return { init, push, sendCommand, isActiveDevice, hasActiveDevice, showTakeover, myDeviceId };
+})();
+
+// ── Playlists ─────────────────────────────────────────────────────────────────
+
+const Playlists = (() => {
+  const panel      = document.getElementById('playlists-panel');
+  const listEl     = document.getElementById('playlist-list');
+  const closeBtn   = document.getElementById('playlists-close');
+  const newBtn     = document.getElementById('new-playlist-btn');
+  const topbarBtn  = document.getElementById('btn-playlists');
+  const fsBtnPl    = document.getElementById('fs-btn-playlists');
+  const addModal   = document.getElementById('add-playlist-modal');
+  const addListEl  = document.getElementById('add-playlist-list');
+  const apmNew     = document.getElementById('apm-new');
+  const apmCancel  = document.getElementById('apm-cancel');
+
+  let _playlists   = [];
+  let _addCallback = null; // { paths } pending add
+
+  async function load() {
+    try {
+      const res = await fetch('/api/playlists');
+      if (!res.ok) return;
+      _playlists = await res.json();
+    } catch {}
+  }
+
+  function open() {
+    panel.hidden = false;
+    load().then(render);
+  }
+
+  function close() { panel.hidden = true; }
+
+  function render() {
+    listEl.innerHTML = '';
+    if (_playlists.length === 0) {
+      listEl.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No playlists yet</div>';
+      return;
+    }
+    for (const pl of _playlists) {
+      const item = document.createElement('div');
+      item.className = 'playlist-item';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'playlist-item-name';
+      nameEl.textContent = pl.name;
+
+      const countEl = document.createElement('span');
+      countEl.className = 'playlist-item-count';
+      countEl.textContent = `${pl.tracks.length} track${pl.tracks.length !== 1 ? 's' : ''}`;
+
+      const actions = document.createElement('span');
+      actions.className = 'playlist-item-actions';
+
+      const playBtn = document.createElement('button');
+      playBtn.className = 'admin-btn';
+      playBtn.textContent = 'Play';
+      playBtn.addEventListener('click', e => { e.stopPropagation(); playPlaylist(pl); });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'admin-btn danger';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', e => { e.stopPropagation(); deletePlaylist(pl.id); });
+
+      actions.append(playBtn, delBtn);
+      item.append(nameEl, countEl, actions);
+
+      // Expand/collapse tracks
+      let expanded = false;
+      let tracksEl = null;
+      item.addEventListener('click', () => {
+        expanded = !expanded;
+        if (expanded) {
+          tracksEl = document.createElement('div');
+          tracksEl.className = 'playlist-tracks';
+          if (pl.tracks.length === 0) {
+            tracksEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Empty playlist</span>';
+          }
+          for (const t of pl.tracks) {
+            const tr = document.createElement('div');
+            tr.className = 'playlist-track';
+            tr.textContent = (t.name || t.path.split('/').pop().replace(/\.[^.]+$/, ''));
+            tr.addEventListener('click', e => { e.stopPropagation(); Player.startQueue([t.path], 0); close(); });
+            tracksEl.appendChild(tr);
+          }
+          item.after(tracksEl);
+        } else {
+          if (tracksEl) { tracksEl.remove(); tracksEl = null; }
+        }
+      });
+
+      listEl.appendChild(item);
+    }
+  }
+
+  function playPlaylist(pl) {
+    if (pl.tracks.length === 0) return;
+    const paths = pl.tracks.map(t => t.path);
+    Player.startQueue(paths, 0);
+    close();
+  }
+
+  async function deletePlaylist(id) {
+    try {
+      await fetch(`/api/playlists/${id}`, { method: 'DELETE' });
+      await load();
+      render();
+    } catch {}
+  }
+
+  async function createPlaylist(name) {
+    try {
+      const res = await fetch('/api/playlists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return null;
+      const pl = await res.json();
+      await load();
+      render();
+      return pl;
+    } catch { return null; }
+  }
+
+  newBtn.addEventListener('click', async () => {
+    const name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+    await createPlaylist(name.trim());
+  });
+
+  // Add-to-playlist modal
+  async function showAddModal(paths) {
+    _addCallback = paths;
+    await load();
+    addListEl.innerHTML = '';
+    if (_playlists.length === 0) {
+      addListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No playlists yet — create one below.</div>';
+    }
+    for (const pl of _playlists) {
+      const btn = document.createElement('button');
+      btn.className = 'modal-btn';
+      btn.textContent = `${pl.name} (${pl.tracks.length} tracks)`;
+      btn.addEventListener('click', () => { addToPlaylist(pl, paths); addModal.hidden = true; });
+      addListEl.appendChild(btn);
+    }
+    addModal.hidden = false;
+  }
+
+  async function addToPlaylist(pl, paths) {
+    const newTracks = paths.map(p => ({ path: p, name: p.split('/').pop().replace(/\.[^.]+$/, '') }));
+    const tracks = [...pl.tracks, ...newTracks];
+    try {
+      await fetch(`/api/playlists/${pl.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks }),
+      });
+    } catch {}
+  }
+
+  apmNew.addEventListener('click', async () => {
+    addModal.hidden = true;
+    const name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+    const pl = await createPlaylist(name.trim());
+    if (pl && _addCallback) await addToPlaylist(pl, _addCallback);
+    _addCallback = null;
+  });
+  apmCancel.addEventListener('click', () => { addModal.hidden = true; _addCallback = null; });
+  addModal.addEventListener('click', e => { if (e.target === addModal) { addModal.hidden = true; _addCallback = null; } });
+
+  closeBtn.addEventListener('click', close);
+  topbarBtn.addEventListener('click', () => { panel.hidden ? open() : close(); });
+  fsBtnPl.addEventListener('click', () => { FullscreenPlayer.close(); open(); });
+
+  return { open, close, showAddModal, createPlaylist };
+})();
+
+// ── Admin Panel ───────────────────────────────────────────────────────────────
+
+const AdminPanel = (() => {
+  const panel        = document.getElementById('admin-panel');
+  const closeBtn     = document.getElementById('admin-close');
+  const userListEl   = document.getElementById('admin-user-list');
+  const addUserBtn   = document.getElementById('admin-add-user-btn');
+  const addForm      = document.getElementById('admin-add-user-form');
+  const editForm     = document.getElementById('admin-edit-user-form');
+  const aeufSelect   = document.getElementById('aeuf-user-select');
+
+  // Add form fields
+  const aaufUser  = document.getElementById('aauf-username');
+  const aaufPass  = document.getElementById('aauf-password');
+  const aaufPass2 = document.getElementById('aauf-password2');
+  const aaufRole  = document.getElementById('aauf-role');
+  const aaufFolders = document.getElementById('aauf-folders');
+  const aaufErr   = document.getElementById('aauf-error');
+  const aaufCancel = document.getElementById('aauf-cancel');
+  const aaufSubmit = document.getElementById('aauf-submit');
+
+  // Edit form fields
+  const aeufPass  = document.getElementById('aeuf-password');
+  const aeufPass2 = document.getElementById('aeuf-password2');
+  const aeufRole  = document.getElementById('aeuf-role');
+  const aeufFolders = document.getElementById('aeuf-folders');
+  const aeufErr   = document.getElementById('aeuf-error');
+  const aeufCancel = document.getElementById('aeuf-cancel');
+  const aeufSubmit = document.getElementById('aeuf-submit');
+
+  let _users = [];
+  let _editUserId = null;
+
+  // ── Folder tree ──────────────────────────────────────────────────────────────
+
+  function buildTreeNode(name, dirPath, checked) {
+    const node = document.createElement('div');
+    node.className = 'ftree-node';
+
+    const row = document.createElement('div');
+    row.className = 'ftree-row';
+
+    const expander = document.createElement('button');
+    expander.type = 'button';
+    expander.className = 'ftree-expand';
+    expander.textContent = '▶';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = dirPath;
+    cb.checked = checked.some(c => c === dirPath || dirPath.startsWith(c + '/'));
+
+    const lbl = document.createElement('label');
+    lbl.className = 'ftree-label';
+    lbl.append(cb, document.createTextNode(' ' + name));
+
+    row.append(expander, lbl);
+    node.appendChild(row);
+
+    const childWrap = document.createElement('div');
+    childWrap.className = 'ftree-children';
+    childWrap.hidden = true;
+    node.appendChild(childWrap);
+
+    let loaded = false;
+    expander.addEventListener('click', async () => {
+      if (!loaded) {
+        childWrap.innerHTML = '<div class="ftree-loading">Loading…</div>';
+        childWrap.hidden = false;
+        expander.textContent = '▼';
+        try {
+          const res = await fetch(`/api/browse?path=${encodeURIComponent(dirPath)}`);
+          const data = await res.json();
+          const subdirs = (data.items || []).filter(i => i.type === 'dir');
+          childWrap.innerHTML = '';
+          if (subdirs.length === 0) {
+            expander.style.visibility = 'hidden';
+          } else {
+            for (const sub of subdirs) {
+              childWrap.appendChild(buildTreeNode(sub.name, sub.path, checked));
+            }
+          }
+        } catch {
+          childWrap.innerHTML = '<div class="ftree-loading">Error loading</div>';
+        }
+        loaded = true;
+      } else {
+        childWrap.hidden = !childWrap.hidden;
+        expander.textContent = childWrap.hidden ? '▶' : '▼';
+      }
+    });
+
+    return node;
+  }
+
+  async function renderFolderTree(container, checked) {
+    container.innerHTML = '<div class="ftree-loading">Loading folders…</div>';
+    try {
+      const res = await fetch('/api/browse?path=');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const dirs = (data.items || []).filter(i => i.type === 'dir');
+      container.innerHTML = '';
+      if (dirs.length === 0) {
+        container.innerHTML = '<span class="ftree-loading">No folders found in media root</span>';
+        return;
+      }
+      for (const dir of dirs) {
+        container.appendChild(buildTreeNode(dir.name, dir.path, checked));
+      }
+    } catch {
+      container.innerHTML = '<span class="ftree-loading">Could not load folders</span>';
+    }
+  }
+
+  function getCheckedPaths(container) {
+    return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+  }
+
+  // ── Users ────────────────────────────────────────────────────────────────────
+
+  async function loadUsers() {
+    try {
+      const res = await fetch('/api/admin/users');
+      if (!res.ok) return;
+      _users = await res.json();
+    } catch {}
+  }
+
+  function populateEditSelect() {
+    const currentId = aeufSelect.value;
+    aeufSelect.innerHTML = '<option value="">— choose a user —</option>';
+    for (const u of _users) {
+      const opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.username + (u.role === 'admin' ? ' (admin)' : '');
+      aeufSelect.appendChild(opt);
+    }
+    aeufSelect.value = currentId;
+  }
+
+  function renderUsers() {
+    userListEl.innerHTML = '';
+    const currentUser = Auth.currentUser();
+    if (_users.length === 0) {
+      userListEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No users yet</div>';
+      return;
+    }
+    for (const u of _users) {
+      const row = document.createElement('div');
+      row.className = 'user-row';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'user-row-name';
+      nameEl.textContent = u.username + (u.id === currentUser?.id ? ' (you)' : '');
+      const roleEl = document.createElement('span');
+      roleEl.className = 'user-row-role';
+      roleEl.textContent = u.role;
+      const delBtn = document.createElement('button');
+      delBtn.className = 'admin-btn danger';
+      delBtn.textContent = 'Delete';
+      delBtn.disabled = u.id === currentUser?.id;
+      delBtn.addEventListener('click', () => deleteUser(u.id));
+      row.append(nameEl, roleEl, delBtn);
+      userListEl.appendChild(row);
+    }
+    populateEditSelect();
+  }
+
+  async function deleteUser(id) {
+    if (!confirm('Delete this user?')) return;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json(); alert(d.error); return; }
+      await loadUsers();
+      renderUsers();
+      if (_editUserId === id) { editForm.hidden = true; _editUserId = null; }
+    } catch {}
+  }
+
+  // ── Add form ─────────────────────────────────────────────────────────────────
+
+  addUserBtn.addEventListener('click', () => {
+    addForm.hidden = !addForm.hidden;
+    if (!addForm.hidden) {
+      aaufUser.value = '';
+      aaufPass.value = '';
+      aaufPass2.value = '';
+      aaufRole.value = 'user';
+      aaufErr.textContent = '';
+      renderFolderTree(aaufFolders, []);
+      aaufUser.focus();
+    }
+  });
+
+  aaufCancel.addEventListener('click', () => { addForm.hidden = true; });
+
+  aaufSubmit.addEventListener('click', async () => {
+    aaufErr.textContent = '';
+    if (aaufPass.value !== aaufPass2.value) { aaufErr.textContent = 'Passwords do not match.'; return; }
+    const body = {
+      username: aaufUser.value.trim(),
+      password: aaufPass.value,
+      role: aaufRole.value,
+      allowedPaths: getCheckedPaths(aaufFolders),
+    };
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { aaufErr.textContent = data.error || 'Error'; return; }
+      addForm.hidden = true;
+      await loadUsers();
+      renderUsers();
+    } catch { aaufErr.textContent = 'Network error'; }
+  });
+
+  // ── Edit form (driven by user select dropdown) ────────────────────────────────
+
+  aeufSelect.addEventListener('change', async () => {
+    const uid = aeufSelect.value;
+    if (!uid) { editForm.hidden = true; _editUserId = null; return; }
+    const u = _users.find(u => u.id === uid);
+    if (!u) return;
+    _editUserId = uid;
+    aeufPass.value = '';
+    aeufPass2.value = '';
+    aeufRole.value = u.role;
+    aeufErr.textContent = '';
+    editForm.hidden = false;
+    await renderFolderTree(aeufFolders, u.allowedPaths || []);
+  });
+
+  aeufCancel.addEventListener('click', () => {
+    editForm.hidden = true;
+    _editUserId = null;
+    aeufSelect.value = '';
+  });
+
+  aeufSubmit.addEventListener('click', async () => {
+    aeufErr.textContent = '';
+    if (aeufPass.value && aeufPass.value !== aeufPass2.value) {
+      aeufErr.textContent = 'Passwords do not match.'; return;
+    }
+    const body = {
+      role: aeufRole.value,
+      allowedPaths: getCheckedPaths(aeufFolders),
+    };
+    if (aeufPass.value) body.password = aeufPass.value;
+    try {
+      const res = await fetch(`/api/admin/users/${_editUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { aeufErr.textContent = data.error || 'Error'; return; }
+      editForm.hidden = true;
+      _editUserId = null;
+      aeufSelect.value = '';
+      await loadUsers();
+      renderUsers();
+    } catch { aeufErr.textContent = 'Network error'; }
+  });
+
+  closeBtn.addEventListener('click', close);
+
+  async function open() {
+    await loadUsers();
+    renderUsers();
+    addForm.hidden = true;
+    editForm.hidden = true;
+    panel.hidden = false;
+  }
+
+  function close() { panel.hidden = true; }
+
+  return { open, close };
+})();
+
+// ── Wire Player.getState / Player.loadState ───────────────────────────────────
+// These augment the already-initialised Player closure by storing refs on the
+// object it returned.
+
+Player.getState = function() {
+  return {
+    queue: Player.getQueue(),
+    index: Player.getQueueIndex(),
+    position: (() => {
+      const el = document.getElementById('audio');
+      return isFinite(el.currentTime) ? el.currentTime : 0;
+    })(),
+    sortKey: localStorage.getItem('snap_sort_key') || 'name',
+    sortDir: localStorage.getItem('snap_sort_dir') || 'asc',
+  };
+};
+
+Player.loadState = function({ queue, index, position }) {
+  if (!Array.isArray(queue) || queue.length === 0) return;
+  // Use startQueue at the right index and seek to position after metadata loads
+  Player.startQueue(queue, typeof index === 'number' ? index : 0);
+  if (position && position > 0) {
+    const audioEl = document.getElementById('audio');
+    const seek = () => { audioEl.currentTime = position; };
+    if (audioEl.readyState >= 1) seek();
+    else audioEl.addEventListener('loadedmetadata', seek, { once: true });
+  }
+};
+
+// ── Route track selection through active device ───────────────────────────────
+// When another device is playing, selecting a track sends it to that device
+// instead of playing locally. The takeover banner appears so the user can
+// optionally switch playback to this device.
+const _origStartQueue = Player.startQueue;
+Player.startQueue = function(paths, idx) {
+  if (SyncManager.hasActiveDevice()) {
+    SyncManager.sendCommand('loadqueue', { queue: paths, index: idx || 0 });
+    SyncManager.showTakeover();
+    return;
+  }
+  _origStartQueue.call(this, paths, idx);
+};
+
+// ── Wire sort changes into SyncManager ───────────────────────────────────────
+// Patch the sort buttons rendered by FileBrowser to push state on change.
+// We do this by observing clicks on .sort-btn elements via event delegation.
+document.getElementById('browser').addEventListener('click', e => {
+  if (e.target.classList.contains('sort-btn')) {
+    setTimeout(() => SyncManager.push(), 50);
+  }
+});
+
+// ── Wire "add to playlist" buttons ───────────────────────────────────────────
+document.getElementById('select-add-playlist').addEventListener('click', () => {
+  const selected = Array.from(document.querySelectorAll('.list-item.selected, .grid-item.selected'))
+    .map(el => {
+      // Find the path from the item's click data — stored as data-path or via the
+      // list items rendered by FileBrowser. We'll rely on QueueModal pattern instead.
+    });
+  // Easier: expose selected paths through FileBrowser
+  Playlists.showAddModal(FileBrowser.getSelectedPaths ? FileBrowser.getSelectedPaths() : []);
+});
+
+document.getElementById('qm-add-playlist').addEventListener('click', () => {
+  // get pending paths from QueueModal
+  const paths = QueueModal.getPendingPaths ? QueueModal.getPendingPaths() : [];
+  document.getElementById('queue-modal').hidden = true;
+  Playlists.showAddModal(paths);
+});
+
+// ── Password eye-toggle (global, works on any .pw-eye button) ────────────────
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.pw-eye');
+  if (!btn) return;
+  const input = document.getElementById(btn.dataset.target);
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.querySelector('.eye-show').hidden = show;
+  btn.querySelector('.eye-hide').hidden = !show;
+});
+
+// ── App startup ───────────────────────────────────────────────────────────────
+
+let _appReady = false;
+function onReady() {
+  const user = Auth.currentUser();
+  if (!user) return;
+  UserMenu.setup(user);
+  // Load the file browser (first real load after auth)
+  FileBrowser.reload();
+  // Restore queue from localStorage
+  Player.restore();
+  if (!Player.isActive()) document.body.classList.add('player-hidden');
+  // Init cross-device sync
+  SyncManager.init();
+  _appReady = true;
+}
+
+Auth.init();
