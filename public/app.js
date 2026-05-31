@@ -769,6 +769,20 @@ const Player = (() => {
       queueIndex = typeof idx === 'number' ? Math.max(0, Math.min(idx, paths.length - 1)) : 0;
       loadTrack(queue[queueIndex], false);
     },
+    syncPositionDisplay(pos, totalDur) {
+      if (!isFinite(pos) || pos < 0) return;
+      const dur = (totalDur > 0 && isFinite(totalDur)) ? totalDur : (isFinite(med.duration) ? med.duration : 0);
+      const pct = dur > 0 ? (pos / dur) * 100 : 0;
+      if (!isSeeking) [seekBar, fsSeekBar].forEach(s => { s.value = pct; });
+      const curStr = formatTime(pos);
+      timeCurrent.textContent   = curStr;
+      fsTimeCurrent.textContent = curStr;
+      if (dur > 0) {
+        const totStr = formatTime(dur);
+        timeTotal.textContent   = totStr;
+        fsTimeTotal.textContent = totStr;
+      }
+    },
   };
 })();
 
@@ -1810,10 +1824,12 @@ const SyncManager = (() => {
   }
 
   function getPlayerState() {
+    const audio = document.getElementById('audio');
     return {
       queue:    Player.getQueue(),
       index:    Player.getQueueIndex(),
-      position: (() => { const e = document.getElementById('audio'); return isFinite(e.currentTime) ? e.currentTime : 0; })(),
+      position: isFinite(audio.currentTime) ? audio.currentTime : 0,
+      duration: isFinite(audio.duration)    ? audio.duration    : 0,
       sortKey:  localStorage.getItem('snap_sort_key') || 'name',
       sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
       deviceId: myDeviceId,
@@ -1853,6 +1869,12 @@ const SyncManager = (() => {
         if (cmd.data?.seekTo != null) e.currentTime = cmd.data.seekTo;
         break;
       }
+      case 'loadqueue': {
+        if (Array.isArray(cmd.data?.queue) && cmd.data.queue.length) {
+          Player.startQueue(cmd.data.queue, cmd.data.index ?? 0);
+        }
+        break;
+      }
     }
   }
 
@@ -1866,10 +1888,12 @@ const SyncManager = (() => {
     updateTakeoverBtn();
 
     if (isActiveDevice()) {
+      // Push current position so non-active devices stay in sync
+      if (!Player.paused()) push();
       // Execute any remote command pushed by another device
       if (state.pendingCommand) {
         executeCommand(state.pendingCommand);
-        setTimeout(() => push(), 300);
+        if (Player.paused()) setTimeout(() => push(), 300);
       }
     } else {
       // Sync queue/track display from active device (no auto-play)
@@ -1878,6 +1902,10 @@ const SyncManager = (() => {
         if (newPath && newPath !== Player.getCurrentPath()) {
           Player.syncQueue(state.queue, state.index);
         }
+      }
+      // Sync playback position display
+      if (typeof state.position === 'number') {
+        Player.syncPositionDisplay(state.position, state.duration);
       }
       // If we just lost active status (another device took over), pause local audio
       if (prevActiveId === myDeviceId && !Player.paused()) {
@@ -1898,10 +1926,21 @@ const SyncManager = (() => {
   // ── Takeover button handlers ──────────────────────────────────────────────────
   function takeoverHere() {
     if (!serverState) return;
-    Player.loadState({ queue: serverState.queue, index: serverState.index, position: serverState.position });
+    // Claim active status before calling loadState so startQueue isn't redirected back
+    const snap = { ...serverState };
     serverState = { ...serverState, activeDeviceId: myDeviceId };
     updateTakeoverBtn();
-    push(); // claim this device
+    takeoverBanner.hidden = true;
+    if (fsTakeoverRow) fsTakeoverRow.hidden = true;
+    Player.loadState({ queue: snap.queue, index: snap.index, position: snap.position });
+    push(); // notify server
+  }
+
+  function showTakeover() {
+    if (!takeoverShown) {
+      takeoverShown = true;
+      takeoverBanner.hidden = false;
+    }
   }
 
   takeoverBtn.addEventListener('click', () => { takeoverBanner.hidden = true; takeoverHere(); });
@@ -1910,11 +1949,11 @@ const SyncManager = (() => {
 
   // ── Transport interception for non-active device ──────────────────────────────
   // Capturing listeners fire before Player's bubble listeners on the same element.
-  function makeTransportGuard(type) {
+  function makeTransportGuard(type, data) {
     return function(e) {
       if (hasActiveDevice()) {
         e.stopImmediatePropagation();
-        sendCommand(type);
+        sendCommand(type, data);
       }
     };
   }
@@ -1926,6 +1965,18 @@ const SyncManager = (() => {
   });
   ['btn-play', 'fs-btn-play'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', makeTransportGuard('playpause'), true);
+  });
+  document.getElementById('fs-btn-skip-back')?.addEventListener('click', makeTransportGuard('skip', { seconds: -30 }), true);
+  document.getElementById('fs-btn-skip-fwd')?.addEventListener('click', makeTransportGuard('skip', { seconds: 30 }), true);
+
+  // ── Seek bar interception for non-active device ───────────────────────────────
+  ['seek-bar', 'fs-seek-bar'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', e => {
+      if (!hasActiveDevice()) return;
+      const audio = document.getElementById('audio');
+      const dur = isFinite(audio.duration) ? audio.duration : (serverState?.duration || 0);
+      if (dur > 0) sendCommand('seek', { seekTo: (parseFloat(e.target.value) / 100) * dur });
+    });
   });
 
   // ── Wire into audio events ────────────────────────────────────────────────────
@@ -1958,7 +2009,7 @@ const SyncManager = (() => {
     startPolling();
   }
 
-  return { init, push, sendCommand, isActiveDevice, hasActiveDevice, myDeviceId };
+  return { init, push, sendCommand, isActiveDevice, hasActiveDevice, showTakeover, myDeviceId };
 })();
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
@@ -2448,6 +2499,20 @@ Player.loadState = function({ queue, index, position }) {
     if (audioEl.readyState >= 1) seek();
     else audioEl.addEventListener('loadedmetadata', seek, { once: true });
   }
+};
+
+// ── Route track selection through active device ───────────────────────────────
+// When another device is playing, selecting a track sends it to that device
+// instead of playing locally. The takeover banner appears so the user can
+// optionally switch playback to this device.
+const _origStartQueue = Player.startQueue;
+Player.startQueue = function(paths, idx) {
+  if (SyncManager.hasActiveDevice()) {
+    SyncManager.sendCommand('loadqueue', { queue: paths, index: idx || 0 });
+    SyncManager.showTakeover();
+    return;
+  }
+  _origStartQueue.call(this, paths, idx);
 };
 
 // ── Wire sort changes into SyncManager ───────────────────────────────────────
