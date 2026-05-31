@@ -215,7 +215,19 @@ app.put('/api/state', requireAuth, (req, res) => {
     sortDir: sortDir || state[req.user.id]?.sortDir || 'asc',
     activeDeviceId: deviceId || state[req.user.id]?.activeDeviceId || null,
     activeDeviceAt: Date.now(),
+    pendingCommand: null,
   };
+  saveUserState(state);
+  res.json({ ok: true });
+});
+
+app.post('/api/command', requireAuth, (req, res) => {
+  const { type, data } = req.body || {};
+  const valid = ['playpause', 'next', 'prev', 'seek', 'skip'];
+  if (!valid.includes(type)) return res.status(400).json({ error: 'Invalid type' });
+  const state = getUserState();
+  if (!state[req.user.id]) return res.status(404).json({ error: 'No active state' });
+  state[req.user.id].pendingCommand = { type, data, sentAt: Date.now() };
   saveUserState(state);
   res.json({ ok: true });
 });

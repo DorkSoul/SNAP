@@ -754,6 +754,13 @@ const Player = (() => {
     playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue,
     isCurrentVideo: () => currentIsVideo,
     skip: (secs) => { med.currentTime = Math.max(0, Math.min(isFinite(med.duration) ? med.duration : Infinity, med.currentTime + secs)); },
+    syncQueue(paths, idx) {
+      if (!Array.isArray(paths) || !paths.length) return;
+      queue = [...paths];
+      originalQueue = null;
+      queueIndex = typeof idx === 'number' ? Math.max(0, Math.min(idx, paths.length - 1)) : 0;
+      loadTrack(queue[queueIndex], false);
+    },
   };
 })();
 
@@ -1757,13 +1764,10 @@ const UserMenu = (() => {
 // ── SyncManager ───────────────────────────────────────────────────────────────
 
 const SyncManager = (() => {
-  const resumeBanner   = document.getElementById('resume-banner');
-  const resumeText     = document.getElementById('resume-banner-text');
-  const resumeBtn      = document.getElementById('resume-btn');
-  const resumeDismiss  = document.getElementById('resume-dismiss');
-  const takeoverBanner = document.getElementById('takeover-banner');
-  const takeoverBtn    = document.getElementById('takeover-btn');
-  const takeoverDismiss= document.getElementById('takeover-dismiss');
+  const takeoverBanner  = document.getElementById('takeover-banner');
+  const takeoverBtn     = document.getElementById('takeover-btn');
+  const takeoverDismiss = document.getElementById('takeover-dismiss');
+  const fsTakeoverBtn   = document.getElementById('fs-btn-takeover');
 
   let myDeviceId = localStorage.getItem('snap_device_id');
   if (!myDeviceId) {
@@ -1774,110 +1778,173 @@ const SyncManager = (() => {
     localStorage.setItem('snap_device_id', myDeviceId);
   }
 
-  let pollTimer = null;
-  let takeoverPrompted = false;
-  let serverState = null;
+  let pollTimer    = null;
+  let serverState  = null;
+  let takeoverShown = false;
+
+  function isActiveDevice() {
+    return !serverState?.activeDeviceId || serverState.activeDeviceId === myDeviceId;
+  }
+
+  function hasActiveDevice() {
+    if (!serverState?.activeDeviceId || serverState.activeDeviceId === myDeviceId) return false;
+    return (Date.now() - (serverState.activeDeviceAt || 0)) < 5 * 60 * 1000;
+  }
+
+  function updateTakeoverBtn() {
+    if (fsTakeoverBtn) fsTakeoverBtn.hidden = isActiveDevice();
+  }
 
   function getPlayerState() {
     return {
-      queue: Player.getQueue(),
-      index: Player.getQueueIndex(),
-      position: (() => {
-        const el = document.getElementById('audio');
-        return isFinite(el.currentTime) ? el.currentTime : 0;
-      })(),
-      sortKey: localStorage.getItem('snap_sort_key') || 'name',
-      sortDir: localStorage.getItem('snap_sort_dir') || 'asc',
+      queue:    Player.getQueue(),
+      index:    Player.getQueueIndex(),
+      position: (() => { const e = document.getElementById('audio'); return isFinite(e.currentTime) ? e.currentTime : 0; })(),
+      sortKey:  localStorage.getItem('snap_sort_key') || 'name',
+      sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
       deviceId: myDeviceId,
     };
   }
 
   async function push(state) {
-    const body = state || getPlayerState();
     try {
       await fetch('/api/state', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(state || getPlayerState()),
       });
     } catch {}
   }
 
+  async function sendCommand(type, data) {
+    try {
+      await fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, data }),
+      });
+    } catch {}
+  }
+
+  function executeCommand(cmd) {
+    if (!cmd?.type) return;
+    if (Date.now() - (cmd.sentAt || 0) > 10000) return; // stale, ignore
+    switch (cmd.type) {
+      case 'playpause': Player.playPause(); break;
+      case 'next':      Player.playNext();  break;
+      case 'prev':      Player.playPrev();  break;
+      case 'skip':      Player.skip(cmd.data?.seconds || 0); break;
+      case 'seek': {
+        const e = document.getElementById('audio');
+        if (cmd.data?.seekTo != null) e.currentTime = cmd.data.seekTo;
+        break;
+      }
+    }
+  }
+
+  async function pollAndSync() {
+    let res;
+    try { res = await fetch('/api/state'); } catch { return; }
+    if (!res?.ok) return;
+    const state = await res.json();
+    const prevActiveId = serverState?.activeDeviceId;
+    serverState = state;
+    updateTakeoverBtn();
+
+    if (isActiveDevice()) {
+      // Execute any remote command pushed by another device
+      if (state.pendingCommand) {
+        executeCommand(state.pendingCommand);
+        setTimeout(() => push(), 300);
+      }
+    } else {
+      // Sync queue/track display from active device (no auto-play)
+      if (state.queue?.length > 0) {
+        const newPath = state.queue[state.index ?? 0];
+        if (newPath && newPath !== Player.getCurrentPath()) {
+          Player.syncQueue(state.queue, state.index);
+        }
+      }
+      // If we just lost active status (another device took over), pause local audio
+      if (prevActiveId === myDeviceId && !Player.paused()) {
+        Player.playPause();
+      }
+    }
+  }
+
   function startPolling() {
     if (pollTimer) return;
-    pollTimer = setInterval(() => {
-      if (!Player.paused()) push();
-    }, 5000);
+    pollTimer = setInterval(pollAndSync, 3000);
   }
 
   function stopPolling() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
-  async function init() {
-    try {
-      const res = await fetch('/api/state');
-      if (!res.ok) return;
-      serverState = await res.json();
-    } catch { return; }
+  // ── Takeover button handlers ──────────────────────────────────────────────────
+  function takeoverHere() {
+    if (!serverState) return;
+    Player.loadState({ queue: serverState.queue, index: serverState.index, position: serverState.position });
+    serverState = { ...serverState, activeDeviceId: myDeviceId };
+    updateTakeoverBtn();
+    push(); // claim this device
+  }
 
-    if (!serverState || !serverState.queue || serverState.queue.length === 0) return;
-    if (!serverState.activeDeviceAt) return;
+  takeoverBtn.addEventListener('click', () => { takeoverBanner.hidden = true; takeoverHere(); });
+  takeoverDismiss.addEventListener('click', () => { takeoverBanner.hidden = true; });
+  if (fsTakeoverBtn) fsTakeoverBtn.addEventListener('click', takeoverHere);
+
+  // ── Transport interception for non-active device ──────────────────────────────
+  // Capturing listeners fire before Player's bubble listeners on the same element.
+  function makeTransportGuard(type) {
+    return function(e) {
+      if (hasActiveDevice()) {
+        e.stopImmediatePropagation();
+        sendCommand(type);
+      }
+    };
+  }
+  ['btn-prev', 'fs-btn-prev'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('prev'), true);
+  });
+  ['btn-next', 'fs-btn-next'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('next'), true);
+  });
+  ['btn-play', 'fs-btn-play'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', makeTransportGuard('playpause'), true);
+  });
+
+  // ── Wire into audio events ────────────────────────────────────────────────────
+  document.getElementById('audio').addEventListener('play',  () => { startPolling(); push(); });
+  document.getElementById('audio').addEventListener('pause', () => { push(); });
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  async function init() {
+    let res;
+    try { res = await fetch('/api/state'); } catch { return; }
+    if (!res?.ok) return;
+    serverState = await res.json();
+    updateTakeoverBtn();
+
+    if (!serverState?.queue?.length || !serverState.activeDeviceAt) { startPolling(); return; }
 
     const age = Date.now() - serverState.activeDeviceAt;
-    const within30min = age < 30 * 60 * 1000;
-    if (!within30min) return;
+    if (age > 30 * 60 * 1000) { startPolling(); return; }
+
+    // Silently load queue/track on all devices
+    Player.syncQueue(serverState.queue, serverState.index);
 
     if (serverState.activeDeviceId !== myDeviceId) {
-      // Different device had state - offer to resume
-      const track = serverState.queue[serverState.index] || serverState.queue[0];
-      const trackName = track ? track.split('/').pop().replace(/\.[^.]+$/, '') : 'your queue';
-      const pos = serverState.position ? formatTime(serverState.position) : '0:00';
-      resumeText.textContent = `Continue playing "${trackName}" from ${pos}?`;
-      resumeBanner.hidden = false;
+      // Another device is active — show takeover banner
+      if (!takeoverShown) {
+        takeoverShown = true;
+        takeoverBanner.hidden = false;
+      }
     }
-  }
-
-  resumeBtn.addEventListener('click', () => {
-    resumeBanner.hidden = true;
-    if (!serverState) return;
-    Player.loadState({
-      queue: serverState.queue,
-      index: serverState.index,
-      position: serverState.position,
-    });
-  });
-  resumeDismiss.addEventListener('click', () => { resumeBanner.hidden = true; });
-
-  takeoverBtn.addEventListener('click', () => {
-    takeoverBanner.hidden = true;
-    push();
-  });
-  takeoverDismiss.addEventListener('click', () => { takeoverBanner.hidden = true; });
-
-  function checkTakeover() {
-    if (takeoverPrompted || !serverState) return;
-    if (!serverState.activeDeviceId || serverState.activeDeviceId === myDeviceId) return;
-    if (!serverState.activeDeviceAt) return;
-    const age = Date.now() - serverState.activeDeviceAt;
-    if (age < 5 * 60 * 1000) {
-      takeoverPrompted = true;
-      takeoverBanner.hidden = false;
-    }
-  }
-
-  // Wire into audio play events for takeover check
-  document.getElementById('audio').addEventListener('play', () => {
-    checkTakeover();
     startPolling();
-    push();
-  });
-  document.getElementById('audio').addEventListener('pause', () => {
-    stopPolling();
-    push();
-  });
+  }
 
-  return { init, push, startPolling, stopPolling, myDeviceId };
+  return { init, push, sendCommand, isActiveDevice, hasActiveDevice, myDeviceId };
 })();
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
