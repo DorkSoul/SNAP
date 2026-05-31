@@ -760,9 +760,10 @@ const Player = (() => {
     paused, isActive, getCurrentPath, getQueue, getQueueIndex,
     startQueue, addToEnd, addAfterCurrent, jumpTo,
     playPause, playNext, playPrev, restore, removeFromQueue, reorderQueue,
-    isCurrentVideo: () => currentIsVideo,
-    getDuration:    () => isFinite(med.duration) ? med.duration : 0,
-    getPosition:    () => isFinite(med.currentTime) ? med.currentTime : 0,
+    isCurrentVideo:  () => currentIsVideo,
+    getDuration:     () => isFinite(med.duration) ? med.duration : 0,
+    getPosition:     () => isFinite(med.currentTime) ? med.currentTime : 0,
+    syncPlayState:   (playing) => syncPlayIcon(playing),
     seekTo: (pos) => {
       if (isFinite(med.duration)) med.currentTime = Math.max(0, Math.min(med.duration, pos));
       else med.currentTime = Math.max(0, pos);
@@ -1861,6 +1862,7 @@ const SyncManager = (() => {
       index:    Player.getQueueIndex(),
       position: Player.getPosition(),
       duration: Player.getDuration(),
+      playing:  !Player.paused(),
       sortKey:  localStorage.getItem('snap_sort_key') || 'name',
       sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
       deviceId: myDeviceId,
@@ -1918,12 +1920,13 @@ const SyncManager = (() => {
     updateTakeoverBtn();
 
     if (isActiveDevice()) {
-      // Push current position so non-active devices stay in sync
-      if (!Player.paused()) push();
-      // Execute any remote command pushed by another device
       if (state.pendingCommand) {
+        // Execute command then always push to clear pendingCommand from server
         executeCommand(state.pendingCommand);
-        if (Player.paused()) setTimeout(() => push(), 300);
+        setTimeout(() => push(), 200);
+      } else if (!Player.paused()) {
+        // Periodic position push so non-active devices stay in sync
+        push();
       }
     } else {
       // Sync queue/track display from active device (no auto-play)
@@ -1933,9 +1936,12 @@ const SyncManager = (() => {
           Player.syncQueue(state.queue, state.index);
         }
       }
-      // Sync playback position display
+      // Sync playback position and play/pause icon
       if (typeof state.position === 'number') {
         Player.syncPositionDisplay(state.position, state.duration);
+      }
+      if (typeof state.playing === 'boolean') {
+        Player.syncPlayState(state.playing);
       }
       // If we just lost active status (another device took over), pause local audio
       if (prevActiveId === myDeviceId && !Player.paused()) {
