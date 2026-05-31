@@ -5,6 +5,7 @@ services:
       - "3000:3000"
     volumes:
       - /path/to/your/media:/media:ro
+      - /path/to/your/data:/app/data
     environment:
       - MEDIA_ROOT=/media
       - PORT=3000
