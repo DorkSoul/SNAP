@@ -1028,6 +1028,7 @@ input[type=range]::-moz-range-thumb {
 .login-box { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:32px; width:min(360px,90vw); display:flex; flex-direction:column; gap:16px; }
 .login-box h1 { color:var(--accent); font-size:24px; text-align:center; }
 .login-field { display:flex; flex-direction:column; gap:6px; }
+.login-field[hidden] { display:none; }
 .login-field label { font-size:13px; color:var(--text-muted); }
 .login-field input { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:14px; outline:none; }
 .login-field input:focus { border-color:var(--accent); }
