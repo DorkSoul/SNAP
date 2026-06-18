@@ -19,8 +19,8 @@ router.put('/state', requireAuth, (req, res) => {
     playing: typeof playing === 'boolean' ? playing : (state[req.user.id]?.playing || false),
     sortKey: sortKey || state[req.user.id]?.sortKey || 'name',
     sortDir: sortDir || state[req.user.id]?.sortDir || 'asc',
-    activeDeviceId: deviceId || state[req.user.id]?.activeDeviceId || null,
-    activeDeviceAt: Date.now(),
+    activeDeviceId: Array.isArray(queue) && queue.length === 0 ? null : (deviceId || state[req.user.id]?.activeDeviceId || null),
+    activeDeviceAt: Array.isArray(queue) && queue.length === 0 ? 0 : Date.now(),
     pendingCommand: null,
   };
   saveUserState(state);

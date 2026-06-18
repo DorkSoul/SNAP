@@ -110,6 +110,13 @@ const SyncManager = (() => {
         push();
       }
     } else {
+      // Active device cleared its queue — hide takeover and reset local display
+      if (!state.queue?.length && !state.activeDeviceId) {
+        takeoverBanner.hidden = true;
+        takeoverShown = false;
+        if (fsTakeoverRow) fsTakeoverRow.hidden = true;
+        return;
+      }
       // Sync queue/track display from active device (no auto-play)
       if (state.queue?.length > 0) {
         const newPath = state.queue[state.index ?? 0];
@@ -198,6 +205,13 @@ const SyncManager = (() => {
   // ── Wire into audio events ────────────────────────────────────────────────────
   document.getElementById('audio').addEventListener('play',  () => { startPolling(); push(); });
   document.getElementById('audio').addEventListener('pause', () => { push(); });
+
+  // ── Push cleared state after Player.clear() runs ─────────────────────────────
+  // Player.clear() pauses audio first (which pushes old queue), then empties queue.
+  // We push after a tick so getPlayerState() sees the already-cleared queue.
+  document.getElementById('btn-clear')?.addEventListener('click', () => {
+    setTimeout(() => push(), 0);
+  });
 
   // ── Init ─────────────────────────────────────────────────────────────────────
   async function init() {
