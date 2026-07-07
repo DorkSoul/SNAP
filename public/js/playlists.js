@@ -30,10 +30,14 @@ const Playlists = (() => {
 
   function open() {
     panel.hidden = false;
+    topbarBtn.classList.add('active');
     load().then(render);
   }
 
-  function close() { panel.hidden = true; }
+  function close() {
+    panel.hidden = true;
+    topbarBtn.classList.remove('active');
+  }
 
   function render() {
     listEl.innerHTML = '';

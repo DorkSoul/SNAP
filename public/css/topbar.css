@@ -71,7 +71,7 @@
     min-width: 0;
     width: auto;
   }
-  .view-btn, .extra-btn { padding: 5px 7px; }
+  .view-btn { padding: 5px 7px; }
 }
 
 .view-btn {
