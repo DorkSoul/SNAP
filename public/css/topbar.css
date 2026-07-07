@@ -50,7 +50,7 @@
 }
 #search:focus { border-color: var(--accent); }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
   :root { --topbar-h: 90px; }
   .topbar {
     flex-wrap: wrap;
