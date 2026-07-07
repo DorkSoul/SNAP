@@ -33,6 +33,7 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  min-width: 0;
 }
 
 #search {
@@ -43,9 +44,23 @@
   padding: 5px 10px;
   font-size: 13px;
   width: 180px;
+  min-width: 60px;
+  flex-shrink: 1;
   outline: none;
 }
 #search:focus { border-color: var(--accent); }
+
+@media (max-width: 480px) {
+  .topbar {
+    padding: 0 10px;
+    gap: 6px;
+  }
+  /* Collapse "SNAP" label to icon-only to free ~45px */
+  .logo { font-size: 0; }
+  .topbar-controls { gap: 5px; }
+  #search { width: 100px; }
+  .view-btn, .extra-btn { padding: 5px 7px; }
+}
 
 .view-btn {
   background: var(--surface2);
