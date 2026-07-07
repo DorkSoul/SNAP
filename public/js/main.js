@@ -117,6 +117,9 @@ new ResizeObserver(entries => {
 
 // Back button: close fullscreen or navigate up the file tree
 window.addEventListener('popstate', e => {
+  // A programmatic FullscreenPlayer.close() consumes its own history entry
+  // via history.back(); that pop must not trigger a browse navigation.
+  if (FullscreenPlayer.consumePendingPop()) return;
   const state = e.state;
   if (!state) return;
   if (FullscreenPlayer.isOpen()) {
@@ -139,15 +142,6 @@ Player.startQueue = function(paths, idx) {
   }
   _origStartQueue.call(this, paths, idx);
 };
-
-// ── Wire sort changes into SyncManager ───────────────────────────────────────
-// Patch the sort buttons rendered by FileBrowser to push state on change.
-// We do this by observing clicks on .sort-btn elements via event delegation.
-document.getElementById('browser').addEventListener('click', e => {
-  if (e.target.classList.contains('sort-btn')) {
-    setTimeout(() => SyncManager.push(), 50);
-  }
-});
 
 // ── Wire "add to playlist" buttons ───────────────────────────────────────────
 document.getElementById('select-add-playlist').addEventListener('click', () => {
@@ -180,6 +174,12 @@ let _appReady = false;
 function onReady() {
   const user = Auth.currentUser();
   if (!user) return;
+  if (_appReady) {
+    // Re-login after session expiry: the app is already initialized and may be
+    // mid-playback — just refresh the listing instead of re-running init.
+    FileBrowser.reload();
+    return;
+  }
   UserMenu.setup(user);
   // Load the file browser (first real load after auth)
   FileBrowser.reload();

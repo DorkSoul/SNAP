@@ -23,6 +23,7 @@ const SyncManager = (() => {
   let pollTimer    = null;
   let serverState  = null;
   let takeoverShown = false;
+  let lastExecutedCmdId = null;
 
   function isActiveDevice() {
     return !serverState?.activeDeviceId || serverState.activeDeviceId === myDeviceId;
@@ -44,18 +45,26 @@ const SyncManager = (() => {
       position: Player.getPosition(),
       duration: Player.getDuration(),
       playing:  !Player.paused(),
-      sortKey:  localStorage.getItem('snap_sort_key') || 'name',
-      sortDir:  localStorage.getItem('snap_sort_dir') || 'asc',
       deviceId: myDeviceId,
     };
   }
 
-  async function push(state) {
+  async function push(opts = {}) {
+    const state = getPlayerState();
+    if (opts.claim) {
+      state.claimActive = true;
+    } else if (hasActiveDevice() && state.queue.length > 0) {
+      // Never push playback state over another device's live session — it
+      // would steal active status and clobber the live position (the server
+      // rejects it too; this just avoids the useless request). Queue-clears
+      // and explicit claims are deliberate user actions and go through.
+      return;
+    }
     try {
       await fetch('/api/state', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state || getPlayerState()),
+        body: JSON.stringify(state),
       });
     } catch {}
   }
@@ -66,6 +75,16 @@ const SyncManager = (() => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, data }),
+      });
+    } catch {}
+  }
+
+  async function ackCommand(id) {
+    try {
+      await fetch('/api/command/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
       });
     } catch {}
   }
@@ -101,10 +120,17 @@ const SyncManager = (() => {
     updateTakeoverBtn();
 
     if (isActiveDevice()) {
-      if (state.pendingCommand) {
-        // Execute command then always push to clear pendingCommand from server
-        executeCommand(state.pendingCommand);
-        setTimeout(() => push(), 200);
+      const cmd = state.pendingCommand;
+      if (cmd && cmd.id) {
+        if (cmd.id !== lastExecutedCmdId) {
+          // Track the id so a failed ack can't re-execute the same command
+          lastExecutedCmdId = cmd.id;
+          executeCommand(cmd);
+          ackCommand(cmd.id);
+          setTimeout(() => push(), 200);
+        } else {
+          ackCommand(cmd.id); // previous ack was lost — retry
+        }
       } else if (!Player.paused()) {
         // Periodic position push so non-active devices stay in sync
         push();
@@ -157,7 +183,7 @@ const SyncManager = (() => {
     takeoverBanner.hidden = true;
     if (fsTakeoverRow) fsTakeoverRow.hidden = true;
     Player.loadState({ queue: snap.queue, index: snap.index, position: snap.position });
-    push(); // notify server
+    push({ claim: true }); // tell the server this device is taking over
   }
 
   function showTakeover() {

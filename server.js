@@ -5,9 +5,12 @@ const crypto = require('crypto');
 const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 
-const { DATA_DIR, SESSIONS_DIR } = require('./lib/data.js');
+const { DATA_DIR, SESSIONS_DIR, flushUserState } = require('./lib/data.js');
 
 const app = express();
+// Honour X-Forwarded-* from a local reverse proxy so secure cookies and
+// req.protocol work when SNAP sits behind HTTPS (Caddy/nginx/Traefik).
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 const PORT = process.env.PORT || 3000;
 
@@ -16,14 +19,17 @@ app.use(session({
   store: new FileStore({ path: SESSIONS_DIR, ttl: 30 * 24 * 3600, retries: 1, logFn: () => {} }),
   secret: (() => {
     const secretFile = path.join(DATA_DIR, 'session_secret');
-    if (fs.existsSync(secretFile)) return fs.readFileSync(secretFile, 'utf8').trim();
+    if (fs.existsSync(secretFile)) {
+      try { fs.chmodSync(secretFile, 0o600); } catch {}
+      return fs.readFileSync(secretFile, 'utf8').trim();
+    }
     const s = crypto.randomBytes(48).toString('hex');
-    fs.writeFileSync(secretFile, s);
+    fs.writeFileSync(secretFile, s, { mode: 0o600 });
     return s;
   })(),
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, maxAge: 30 * 24 * 3600 * 1000, sameSite: 'lax' },
+  cookie: { httpOnly: true, maxAge: 30 * 24 * 3600 * 1000, sameSite: 'lax', secure: 'auto' },
 }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -83,3 +89,13 @@ server.keepAliveTimeout = 30000;
 server.on('connection', socket => {
   socket.setKeepAlive(true, 10000); // probe after 10 s idle
 });
+
+// ── Graceful shutdown: flush the in-memory user state to disk ─────────────────
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    flushUserState();
+    server.close(() => process.exit(0));
+    // Open keepalive sockets can hold close() forever; don't wait on them.
+    setTimeout(() => process.exit(0), 2000).unref();
+  });
+}

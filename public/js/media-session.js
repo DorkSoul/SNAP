@@ -15,7 +15,7 @@ const MediaSessionManager = (() => {
     pause:         () => Player.playPause(),
     previoustrack: () => Player.playPrev(),
     nexttrack:     () => Player.playNext(),
-    seekto:        d  => { const el = document.getElementById('video').hidden === false ? document.getElementById('video') : document.getElementById('audio'); el.currentTime = d.seekTime; },
+    seekto:        d  => { Player.seekTo(d.seekTime); },
     seekbackward:  d  => { Player.skip(-(d.seekOffset || 10)); },
     seekforward:   d  => { Player.skip(d.seekOffset || 10); },
   };

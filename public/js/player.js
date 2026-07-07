@@ -129,14 +129,18 @@ const Player = (() => {
     const url = `/api/artwork?path=${enc(path)}`;
     [artImg, fsArtImg].forEach(img => {
       img.src = url;
-      img.onerror = () => { img.src = ''; };
+      // Clear the handler before clearing src — assigning src can itself fire
+      // another error event, which would loop.
+      img.onerror = () => { img.onerror = null; img.removeAttribute('src'); };
     });
   }
 
   // ── setMediaMode ──
   function setMediaMode(isVideo) {
+    const vol = med.volume;
     currentIsVideo = isVideo;
     med = isVideo ? videoEl : audioEl;
+    med.volume = vol; // carry the volume slider setting across audio↔video
     if (isVideo) {
       audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load();
       fsArtImg.style.display = 'none';
@@ -278,9 +282,10 @@ const Player = (() => {
     saveState();
   }
 
-  function addAfterCurrent(path) {
-    queue.splice(queueIndex + 1, 0, path);
-    if (originalQueue) originalQueue.splice(originalQueue.length, 0, path);
+  function addAfterCurrent(pathOrPaths) {
+    const paths = Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths];
+    queue.splice(queueIndex + 1, 0, ...paths);
+    if (originalQueue) originalQueue.push(...paths);
     window._QueuePanel && window._QueuePanel.refresh();
     saveState();
   }
@@ -587,9 +592,13 @@ const Player = (() => {
   function reorderQueue(fromIdx, toIdx) {
     if (fromIdx === toIdx || fromIdx === queueIndex) return;
     const [item] = queue.splice(fromIdx, 1);
-    queue.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, item);
-    queueIndex = currentPath ? queue.indexOf(currentPath) : queueIndex;
-    originalQueue = queue.slice();
+    const insertAt = toIdx > fromIdx ? toIdx - 1 : toIdx;
+    queue.splice(insertAt, 0, item);
+    // Track the current item by index arithmetic — indexOf(currentPath) picks
+    // the wrong entry when the queue holds duplicates. originalQueue keeps the
+    // pre-shuffle order, so a reorder of the shuffled view must not clobber it.
+    if (fromIdx < queueIndex && insertAt >= queueIndex) queueIndex--;
+    else if (fromIdx > queueIndex && insertAt <= queueIndex) queueIndex++;
     saveState();
     window._QueuePanel && window._QueuePanel.refresh();
   }
@@ -716,29 +725,17 @@ const Player = (() => {
   };
 })();
 
-// ── Wire Player.getState / Player.loadState ───────────────────────────────────
-Player.getState = function() {
-  return {
-    queue: Player.getQueue(),
-    index: Player.getQueueIndex(),
-    position: (() => {
-      const el = document.getElementById('audio');
-      return isFinite(el.currentTime) ? el.currentTime : 0;
-    })(),
-    sortKey: localStorage.getItem('snap_sort_key') || 'name',
-    sortDir: localStorage.getItem('snap_sort_dir') || 'asc',
-  };
-};
-
+// ── Wire Player.loadState ─────────────────────────────────────────────────────
 Player.loadState = function({ queue, index, position }) {
   if (!Array.isArray(queue) || queue.length === 0) return;
   // Use startQueue at the right index and seek to position after metadata loads
   Player.startQueue(queue, typeof index === 'number' ? index : 0);
   if (position && position > 0) {
-    const audioEl = document.getElementById('audio');
-    const seek = () => { audioEl.currentTime = position; };
-    if (audioEl.readyState >= 1) seek();
-    else audioEl.addEventListener('loadedmetadata', seek, { once: true });
+    // startQueue has already switched the active element for audio vs video
+    const el = document.getElementById(Player.isCurrentVideo() ? 'video' : 'audio');
+    const seek = () => { el.currentTime = position; };
+    if (el.readyState >= 1) seek();
+    else el.addEventListener('loadedmetadata', seek, { once: true });
   }
 };
 

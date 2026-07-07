@@ -26,19 +26,39 @@ const FullscreenPlayer = (() => {
     el.classList.add('controls-hidden');
   }
 
+  // Set when close() pops its own history entry, so the popstate handler in
+  // main.js can tell that pop apart from a real Back press.
+  let pendingPop = false;
+
   function open() {
+    if (!el.hidden) return;
     history.pushState({ type: 'fullscreen' }, '');
     el.hidden = false;
     if (Player.isCurrentVideo()) showControls();
   }
 
   function close() {
+    const wasOpen = !el.hidden;
     el.hidden = true;
     el.classList.remove('controls-hidden');
     clearTimeout(controlsHideTimer);
     clearTimeout(tapTimer);
     controlsHideTimer = null;
     tapTimer = null;
+    // Programmatic close (queue/playlists buttons, Player.clear): consume the
+    // history entry open() pushed so the next Back press doesn't replay it.
+    // When close() runs *from* a Back press, the entry is already popped and
+    // history.state is the browse entry, so this is skipped.
+    if (wasOpen && history.state && history.state.type === 'fullscreen') {
+      pendingPop = true;
+      history.back();
+    }
+  }
+
+  function consumePendingPop() {
+    if (!pendingPop) return false;
+    pendingPop = false;
+    return true;
   }
 
   function isOpen() { return !el.hidden; }
@@ -114,7 +134,7 @@ const FullscreenPlayer = (() => {
   // Re-show controls when the seek bar is touched
   el.addEventListener('input', () => { if (Player.isCurrentVideo()) showControls(); });
 
-  return { open, close, isOpen };
+  return { open, close, isOpen, consumePendingPop };
 })();
 
 export { FullscreenPlayer };

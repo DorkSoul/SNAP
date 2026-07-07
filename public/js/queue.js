@@ -18,8 +18,6 @@ const QueueModal = (() => {
   // For play-all: paths=allFiles, startIdx=0.
   let pendingPaths = [];
   let pendingIdx   = 0;
-  // The "add next/add end" target is always pendingPaths[pendingIdx]
-  function pendingPath() { return pendingPaths[pendingIdx]; }
 
   function show(title, paths, startIdx) {
     pendingPaths = paths;
@@ -36,12 +34,8 @@ const QueueModal = (() => {
   });
 
   btnNext.addEventListener('click', () => {
-    // For multi-file (play all) add all after current; for single just add one
-    if (pendingPaths.length > 1) {
-      pendingPaths.forEach(p => Player.addToEnd(p));
-    } else {
-      Player.addAfterCurrent(pendingPath());
-    }
+    // Insert after the current track, preserving order (single or multi)
+    Player.addAfterCurrent([...pendingPaths]);
     hide();
   });
 

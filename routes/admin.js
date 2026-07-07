@@ -29,14 +29,23 @@ router.patch('/users/:id', requireAdmin, async (req, res) => {
   const idx = users.findIndex(u => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'User not found' });
   const { password, role, allowedPaths } = req.body || {};
-  if (password !== undefined) {
-    if (!validPassword(password)) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    users[idx].passwordHash = await bcrypt.hash(password, 12);
+
+  // Validate everything before mutating: getUsers() returns the in-memory
+  // cache, so a partial mutation followed by an early return would leave the
+  // cache out of sync with disk.
+  if (password !== undefined && !validPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
   if (role !== undefined) {
     if (!['admin', 'user'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-    users[idx].role = role;
+    if (users[idx].role === 'admin' && role !== 'admin' &&
+        !users.some(u => u.role === 'admin' && u.id !== users[idx].id)) {
+      return res.status(400).json({ error: 'Cannot demote the last admin' });
+    }
   }
+
+  if (password !== undefined) users[idx].passwordHash = await bcrypt.hash(password, 12);
+  if (role !== undefined) users[idx].role = role;
   if (allowedPaths !== undefined) users[idx].allowedPaths = Array.isArray(allowedPaths) ? allowedPaths : [];
   saveUsers(users);
   const { passwordHash, ...out } = users[idx];

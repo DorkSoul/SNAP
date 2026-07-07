@@ -36,8 +36,20 @@ const AdminPanel = (() => {
   let _editUserId = null;
 
   // ── Folder tree ──────────────────────────────────────────────────────────────
+  // Grants live in a Set per tree, not in the checkboxes themselves — the tree
+  // loads lazily, so grants under folders that were never expanded must survive
+  // an edit-and-save round trip. Checkboxes are just a view over the Set.
 
-  function buildTreeNode(name, dirPath, checked) {
+  function grantCovers(granted, dirPath) {
+    for (const g of granted) if (g === dirPath || dirPath.startsWith(g + '/')) return true;
+    return false;
+  }
+  function hasGrantUnder(granted, dirPath) {
+    for (const g of granted) if (g.startsWith(dirPath + '/')) return true;
+    return false;
+  }
+
+  function buildTreeNode(name, dirPath, ctx) {
     const node = document.createElement('div');
     node.className = 'ftree-node';
 
@@ -52,7 +64,29 @@ const AdminPanel = (() => {
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.value = dirPath;
-    cb.checked = checked.some(c => c === dirPath || dirPath.startsWith(c + '/'));
+
+    function syncBox() {
+      cb.checked = grantCovers(ctx.granted, dirPath);
+      cb.indeterminate = !cb.checked && hasGrantUnder(ctx.granted, dirPath);
+    }
+    ctx.syncFns.add(syncBox);
+    syncBox();
+
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        // This grant subsumes any grants below it
+        for (const g of [...ctx.granted]) if (g.startsWith(dirPath + '/')) ctx.granted.delete(g);
+        ctx.granted.add(dirPath);
+      } else {
+        // Drop this grant plus any grant below or above it (an ancestor grant
+        // would keep this folder accessible, so unchecking must remove it too)
+        ctx.granted.delete(dirPath);
+        for (const g of [...ctx.granted]) {
+          if (g.startsWith(dirPath + '/') || dirPath.startsWith(g + '/')) ctx.granted.delete(g);
+        }
+      }
+      ctx.syncFns.forEach(f => f());
+    });
 
     const lbl = document.createElement('label');
     lbl.className = 'ftree-label';
@@ -81,7 +115,7 @@ const AdminPanel = (() => {
             expander.style.visibility = 'hidden';
           } else {
             for (const sub of subdirs) {
-              childWrap.appendChild(buildTreeNode(sub.name, sub.path, checked));
+              childWrap.appendChild(buildTreeNode(sub.name, sub.path, ctx));
             }
           }
         } catch {
@@ -98,6 +132,8 @@ const AdminPanel = (() => {
   }
 
   async function renderFolderTree(container, checked) {
+    const ctx = { granted: new Set(checked || []), syncFns: new Set() };
+    container._ftreeCtx = ctx;
     container.innerHTML = '<div class="ftree-loading">Loading folders…</div>';
     try {
       const res = await fetch('/api/browse?path=');
@@ -110,7 +146,7 @@ const AdminPanel = (() => {
         return;
       }
       for (const dir of dirs) {
-        container.appendChild(buildTreeNode(dir.name, dir.path, checked));
+        container.appendChild(buildTreeNode(dir.name, dir.path, ctx));
       }
     } catch {
       container.innerHTML = '<span class="ftree-loading">Could not load folders</span>';
@@ -118,7 +154,11 @@ const AdminPanel = (() => {
   }
 
   function getCheckedPaths(container) {
-    return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+    const ctx = container._ftreeCtx;
+    if (!ctx) return [];
+    // Drop grants already covered by an ancestor grant
+    const list = [...ctx.granted];
+    return list.filter(g => !list.some(o => o !== g && g.startsWith(o + '/')));
   }
 
   // ── Users ────────────────────────────────────────────────────────────────────

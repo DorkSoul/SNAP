@@ -201,6 +201,10 @@ const FileBrowser = (() => {
       renderSearchResults();
       return;
     }
+    // A search is in flight (or just failed): the pane shows "Searching…" /
+    // "Search failed" — don't let an unrelated render() (e.g. a track change)
+    // replace it with the folder listing while the search box has a query.
+    if (searchQuery.length >= 2) return;
     let items = currentItems;
     if (items.length === 0) {
       browserEl.innerHTML = '<div class="browser-empty">No files found</div>';
@@ -468,13 +472,18 @@ const FileBrowser = (() => {
     searchDebounce = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${enc(q)}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (searchEl.value.trim() === q) { // ignore stale responses
-          searchResults = data;
-          render();
+        if (searchEl.value.trim() !== q) return; // ignore stale responses
+        if (!res.ok) {
+          browserEl.innerHTML = '<div class="browser-empty">Search failed</div>';
+          return;
         }
-      } catch {}
+        searchResults = await res.json();
+        render();
+      } catch {
+        if (searchEl.value.trim() === q) {
+          browserEl.innerHTML = '<div class="browser-empty">Search failed</div>';
+        }
+      }
     }, 300);
   });
 
