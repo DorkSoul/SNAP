@@ -33,7 +33,6 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  min-width: 0;
 }
 
 #search {
@@ -44,37 +43,9 @@
   padding: 5px 10px;
   font-size: 13px;
   width: 180px;
-  min-width: 60px;
-  flex-shrink: 1;
   outline: none;
 }
 #search:focus { border-color: var(--accent); }
-
-@media (max-width: 600px) {
-  :root { --topbar-h: 90px; }
-  .topbar {
-    flex-wrap: wrap;
-    height: auto;
-    padding: 8px 10px;
-    gap: 0;
-  }
-  /* Controls drop to their own full-width row below the logo */
-  .topbar-controls {
-    width: 100%;
-    margin-left: 0;
-    margin-top: 6px;
-    gap: 6px;
-  }
-  /* Search: fixed basis so it can't consume all the row and push buttons off */
-  #search {
-    flex: 0 1 160px;
-    min-width: 60px;
-    width: auto;
-  }
-  /* Buttons must never shrink — only the search field gives way */
-  .view-btn { padding: 5px 7px; flex-shrink: 0; }
-  .user-menu-wrap { flex-shrink: 0; }
-}
 
 .view-btn {
   background: var(--surface2);
