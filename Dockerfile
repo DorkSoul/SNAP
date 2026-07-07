@@ -3,6 +3,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 COPY server.js .
+COPY lib/ lib/
+COPY middleware/ middleware/
+COPY routes/ routes/
 COPY public/ public/
 EXPOSE 3000
 CMD ["node", "server.js"]
