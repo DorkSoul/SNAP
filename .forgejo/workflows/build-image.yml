@@ -1,0 +1,43 @@
+name: Build and Push to DevHub
+
+on:
+  push:
+    branches:
+      - main
+      - testing
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Docker CLI
+        run: |
+          apt-get update
+          apt-get install -y docker.io
+
+      - name: Log in to DevHub registry
+        env:
+          REGISTRY_USERNAME: Dork_Soul
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login devhub.dorksoul.me \
+            --username "$REGISTRY_USERNAME" --password-stdin
+
+      - name: Build and push image
+        env:
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          IMAGE="devhub.dorksoul.me/dork_soul/snap"
+          if [ "$BRANCH" = "main" ]; then
+            TAG=latest
+          else
+            TAG="$BRANCH"
+          fi
+          docker build --pull -t "$IMAGE:$TAG" -t "$IMAGE:$COMMIT" .
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:$COMMIT"

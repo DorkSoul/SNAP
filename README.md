@@ -149,9 +149,20 @@ SNAP is designed to work well on mobile browsers:
 
 ## CI / CD
 
-Pushing to `main` triggers a GitHub Actions workflow that builds and pushes a Docker image to the GitHub Container Registry:
+Pushing to `main` or `testing` continues to trigger the GitHub Actions workflow that builds and pushes a Docker image to the GitHub Container Registry:
 
 ```
 ghcr.io/dorksoul/snap:latest
 ghcr.io/dorksoul/snap:<commit-sha>
 ```
+
+### DevHub test build
+
+The Forgejo workflow in `.forgejo/workflows/build-image.yml` builds the same Dockerfile on the NAS runner and pushes to DevHub:
+
+```
+devhub.dorksoul.me/dork_soul/snap:testing
+devhub.dorksoul.me/dork_soul/snap:<commit-sha>
+```
+
+The `main` branch publishes the `latest` tag. The `testing` branch publishes the `testing` tag. GitHub remains configured as a separate build path so both registries can be compared during this trial. In Portainer, use the saved **DevHub** registry credentials when deploying the DevHub image.
