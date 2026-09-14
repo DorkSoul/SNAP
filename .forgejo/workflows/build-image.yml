@@ -24,7 +24,7 @@ jobs:
       - name: Log in to DevHub registry
         env:
           REGISTRY_USERNAME: Dork_Soul
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          REGISTRY_TOKEN: ${{ secrets.DEVHUB_TOKEN }}
         run: |
           printf '%s' "$REGISTRY_TOKEN" | docker login devhub.dorksoul.me \
             --username "$REGISTRY_USERNAME" --password-stdin
