@@ -7,6 +7,75 @@ import { clog, formatTime, enc, icons } from './utils.js';
 // To avoid circular imports they are accessed via window or a registry pattern.
 // We use a simple deferred-reference approach: functions that call them look them up lazily.
 
+// ── Mobile background-playback keepalive ──────────────────────────────────────
+//
+// Chrome on Android 15 gives up audio focus and tears down the media session
+// (and the foreground-service notification with it) the instant no element is
+// playing - which is exactly what happens between two tracks. The next track's
+// fresh focus request then has to beat Android's audio-focus hardening, which
+// denies it when the app has no foreground service, so Chrome pauses the new
+// track and, silent and hidden, freezes the page a couple of minutes later.
+// A silent looping element keeps a player alive across every hand-off, so
+// focus is never abandoned and there is no request to deny.
+//
+// Measured on Chrome for Android only; applied to every mobile browser as a
+// precaution. Desktop browsers are left alone.
+function isMobileBrowser() {
+  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Opera Mini/i.test(navigator.userAgent)) return true;
+  // iPadOS reports a desktop Mac user agent; the touch screen gives it away.
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+const IS_MOBILE = isMobileBrowser();
+
+// One second of 8 kHz mono silence, made in memory so there is nothing to fetch.
+function createSilentWavUrl() {
+  const rate = 8000;
+  const buf = new ArrayBuffer(44 + rate);
+  const v = new DataView(buf);
+  const tag = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  tag(0, 'RIFF'); v.setUint32(4, 36 + rate, true); tag(8, 'WAVE'); tag(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  tag(36, 'data'); v.setUint32(40, rate, true);
+  new Uint8Array(buf, 44).fill(128); // 8-bit PCM silence
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+// The next track is downloaded into memory ahead of time so that advancing to
+// it never needs the network. A hidden/locked page can lose network access
+// (Doze, a frozen tab) exactly when the previous track ends, and a fresh stream
+// request made then may never complete - the element sits at readyState 0 and
+// the OS drops the media notification that keeps the page alive. Anything over
+// the cap, or without a usable body, streams from the network as before.
+const MAX_TRACK_PREFETCH_BYTES = 96 * 1024 * 1024;
+
+async function prefetchTrackBlob(url, signal) {
+  try {
+    const res = await fetch(url, { signal, credentials: 'same-origin' });
+    if (!res.ok || !res.body) return null;
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_TRACK_PREFETCH_BYTES) {
+      res.body.cancel();
+      return null;
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_TRACK_PREFETCH_BYTES) { reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    if (received === 0) return null;
+    return URL.createObjectURL(new Blob(chunks, { type: res.headers.get('content-type') || 'audio/mpeg' }));
+  } catch (_) {
+    return null;
+  }
+}
+
 // ── Player ────────────────────────────────────────────────────────────────────
 
 const Player = (() => {
@@ -66,6 +135,65 @@ const Player = (() => {
   let isSeeking     = false;
   let currentPath   = null;
   let _pendingRestorePosition = 0; // position to seek to on first play after restore
+
+  // ── Mobile keepalive + next-track blob (see top of file) ──
+  let keepAliveEl = null;
+  let keepAliveUrl = null;
+  let switchingTrack = false;   // a loadTrack is in flight; don't drop the keepalive
+  const trackBlobs = new Map(); // stream path -> blob: URL, oldest first
+  let prefetch = null;          // { path, controller }
+
+  function startKeepAlive() {
+    if (!IS_MOBILE || currentIsVideo) return;
+    if (!keepAliveEl) {
+      keepAliveEl = document.createElement('audio');
+      keepAliveEl.loop = true;
+      keepAliveEl.setAttribute('aria-hidden', 'true');
+      keepAliveEl.tabIndex = -1;
+      keepAliveEl.dataset.keepalive = 'true';
+      keepAliveUrl = createSilentWavUrl();
+      keepAliveEl.src = keepAliveUrl;
+      document.body.appendChild(keepAliveEl);
+    }
+    if (keepAliveEl.paused) keepAliveEl.play().catch(() => {});
+  }
+
+  function stopKeepAlive() {
+    if (keepAliveEl && !keepAliveEl.paused) keepAliveEl.pause();
+  }
+
+  function rememberTrackBlob(path, url) {
+    trackBlobs.set(path, url);
+    // Keep only the current and next track.
+    while (trackBlobs.size > 2) {
+      const [oldPath, oldUrl] = trackBlobs.entries().next().value;
+      trackBlobs.delete(oldPath);
+      URL.revokeObjectURL(oldUrl);
+    }
+  }
+
+  // The track playNext() would move to, or null.
+  function nextPath() {
+    if (repeatMode === 'one') return null;
+    if (queueIndex < queue.length - 1) return queue[queueIndex + 1];
+    if (repeatMode === 'queue' && queue.length > 0) return queue[0];
+    return null;
+  }
+
+  function prefetchNext() {
+    if (!IS_MOBILE || currentIsVideo) return;
+    const path = nextPath();
+    if (!path || path === currentPath || trackBlobs.has(path)) return;
+    if (prefetch && prefetch.path === path) return;
+    if (prefetch) prefetch.controller.abort();
+    const controller = new AbortController();
+    prefetch = { path, controller };
+    prefetchTrackBlob(`/api/stream?path=${enc(path)}`, controller.signal).then(url => {
+      if (!prefetch || prefetch.controller !== controller) { if (url) URL.revokeObjectURL(url); return; }
+      prefetch = null;
+      if (url) rememberTrackBlob(path, url);
+    });
+  }
 
   // ── Persistence ──
   const STORAGE_KEY = 'snap_state';
@@ -171,7 +299,9 @@ const Player = (() => {
     lastGoodPosition = 0; // new track - don't restore old position on play events
     clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null;
     saveState();
-    med.src = `/api/stream?path=${enc(path)}`;
+    switchingTrack = true;
+    // Prefer the in-memory copy of a prefetched track: no request at the hand-off.
+    med.src = (!isVideo && trackBlobs.get(path)) || `/api/stream?path=${enc(path)}`;
     med.load();
 
     [seekBar, fsSeekBar].forEach(s => { s.value = 0; });
@@ -209,6 +339,8 @@ const Player = (() => {
         if (isVideo) window._FullscreenPlayer && window._FullscreenPlayer.open();
       } catch (e) { console.warn('Playback failed:', e); }
     }
+    switchingTrack = false;
+    if (!play || med.paused) stopKeepAlive();
   }
 
   // ── Controls ──
@@ -233,6 +365,7 @@ const Player = (() => {
     } else {
       med.pause();
       syncPlayIcon(false);
+      stopKeepAlive();
       window._WakeLock && window._WakeLock.release();
     }
   }
@@ -244,6 +377,7 @@ const Player = (() => {
     } else if (repeatMode === 'queue') {
       queueIndex = 0;
     } else {
+      stopKeepAlive(); // end of queue: nothing left to keep the session for
       return;
     }
     loadTrack(queue[queueIndex]);
@@ -347,6 +481,7 @@ const Player = (() => {
   onBoth('timeupdate', function() {
     if (med.currentTime > 1) lastGoodPosition = med.currentTime;
     if (med.currentTime > 1 && loadTimeoutTimer) { clearTimeout(loadTimeoutTimer); loadTimeoutTimer = null; }
+    if (med.currentTime > 1) prefetchNext();
     syncSeek();
     const now = Date.now();
     if (now - lastSaveAt > 5000) { saveState(); lastSaveAt = now; }
@@ -358,8 +493,8 @@ const Player = (() => {
     playNext();
     if (med.paused) window._WakeLock && window._WakeLock.release();
   });
-  onBoth('pause',   function() { syncPlayIcon(false); window._MediaSessionManager && window._MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
-  onBoth('play',    function() { syncPlayIcon(true);  window._MediaSessionManager && window._MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  onBoth('pause',   function() { if (!med.ended && !switchingTrack) stopKeepAlive(); syncPlayIcon(false); window._MediaSessionManager && window._MediaSessionManager.setPlaying(false); clog('audio:pause',   { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
+  onBoth('play',    function() { startKeepAlive(); syncPlayIcon(true);  window._MediaSessionManager && window._MediaSessionManager.setPlaying(true);  clog('audio:play',    { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition), hidden: document.hidden }); });
   onBoth('stalled', function() { clog('audio:stalled', { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition) }); });
   onBoth('waiting', function() { clog('audio:waiting', { t: Math.round(med.currentTime), lgp: Math.round(lastGoodPosition) }); });
   audioEl.addEventListener('error',   () => clog('audio:error',   { code: audioEl.error?.code, msg: audioEl.error?.message, t: Math.round(audioEl.currentTime) }));
@@ -554,6 +689,11 @@ const Player = (() => {
     originalQueue = null;
     queueIndex = -1;
     currentPath = null;
+
+    stopKeepAlive();
+    if (prefetch) { prefetch.controller.abort(); prefetch = null; }
+    trackBlobs.forEach(url => URL.revokeObjectURL(url));
+    trackBlobs.clear();
 
     syncPlayIcon(false);
     artImg.src = '';
